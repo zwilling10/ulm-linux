@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:assistant="clr-namespace:ULM.Assistant.Views;assembly=ULM.Assistant"
         Title="Universal Linux Manager"
-        Width="1160" Height="750" MinWidth="900" MinHeight="580"
+        Width="1320" Height="750" MinWidth="900" MinHeight="580"
         Background="{DynamicResource BrushBg}"
         WindowStartupLocation="CenterScreen">
 
@@ -620,9 +620,12 @@
             </Grid>
         </Border>
 
-        <assistant:AvatarButton x:Name="UliButton" Grid.Row="0" Grid.RowSpan="6"
+        <!-- RowSpan endet bewusst VOR der Statuszeile (Zeile 5, 28px), statt über alle 6 Zeilen zu
+             schweben — sonst überlappte der Button die "Info-Fenster anzeigen"-Checkbox dort
+             (Nutzer-Screenshot). So sitzt er sauber oberhalb der Statuszeile. -->
+        <assistant:AvatarButton x:Name="UliButton" Grid.Row="0" Grid.RowSpan="5"
                                  HorizontalAlignment="Right" VerticalAlignment="Bottom"
-                                 Margin="0,0,20,20" Panel.ZIndex="999"/>
+                                 Margin="0,0,20,16" Panel.ZIndex="999"/>
 
     </Grid>
 </Window>
