@@ -51,8 +51,15 @@ namespace ULM.Core.Services
                 return result;
             }
 
+            // DriveType 2 = Wechseldatenträger (leer formatierte/Ventoy-Sticks). DriveType 5 =
+            // CD-ROM — Windows stuft mit Rufus im ISO/DD-Image-Modus beschriebene Sticks (üblich
+            // für die meisten Linux-Live-ISOs) oft als optisches Medium ein, obwohl es physisch
+            // ein USB-Stick ist, weil das Image ein hybrides ISO ist. Ohne DriveType 5 wurden
+            // solche Sticks nie erkannt — kein "neuer Stick"-Dialog, kein Ventoy-Angebot (Nutzer-
+            // Testfeedback). Der bestehende ≥2GB-Größenfilter unten schließt echte, leere optische
+            // Laufwerke (kein Medium → Size=0) weiterhin zuverlässig aus.
             const string script = @"
-$vols = Get-CimInstance Win32_LogicalDisk | Where-Object { $_.DriveType -eq 2 }
+$vols = Get-CimInstance Win32_LogicalDisk | Where-Object { $_.DriveType -eq 2 -or $_.DriveType -eq 5 }
 foreach ($v in $vols) {
   $id=$v.DeviceID; $label=$v.VolumeName; $size=[int64]($v.Size); $fs=$v.FileSystem
   if ($id -and $size -ge 2000000000 -and $label -notmatch '^(VTOYEFI|EFI|ESP)$') {
