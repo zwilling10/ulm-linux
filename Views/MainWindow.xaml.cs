@@ -10,6 +10,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Threading;
+using ULM.Assistant.Models;
 using ULM.Core.Models;
 using ULM.Core.Services;
 using ULM.Infrastructure;
@@ -49,6 +50,9 @@ namespace ULM.Views
             ApplyLocalizedText();
             _vm = new MainViewModel(Dispatcher);
             DataContext = _vm;
+            UliButton.GetLanguage = () => LocalizationService.Current == AppLanguage.German
+                ? AssistantLanguage.German
+                : AssistantLanguage.English;
             ThemeService.ThemeChanged += () =>
             {
                 _vm.RefreshAllEntries();

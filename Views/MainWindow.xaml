@@ -1,6 +1,7 @@
 <Window x:Class="ULM.Views.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:assistant="clr-namespace:ULM.Assistant.Views;assembly=ULM.Assistant"
         Title="Universal Linux Manager"
         Width="1160" Height="750" MinWidth="900" MinHeight="580"
         Background="{DynamicResource BrushBg}"
@@ -618,6 +619,10 @@
                           VerticalAlignment="Center"/>
             </Grid>
         </Border>
+
+        <assistant:AvatarButton x:Name="UliButton" Grid.Row="0" Grid.RowSpan="6"
+                                 HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                                 Margin="0,0,20,20" Panel.ZIndex="999"/>
 
     </Grid>
 </Window>
