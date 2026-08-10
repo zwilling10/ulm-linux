@@ -120,7 +120,28 @@ namespace ULM.Assistant.Views
             }
         }
 
-        private void AddUserMessage(string text) => _messages.Add(new ChatMessageView(new ChatMessage { Sender = ChatSender.User, Text = text }));
-        private void AddUliMessage(string text, string? hint = null)  => _messages.Add(new ChatMessageView(new ChatMessage { Sender = ChatSender.Uli, Text = text }, hint));
+        private void AddUserMessage(string text)
+        {
+            _messages.Add(new ChatMessageView(new ChatMessage { Sender = ChatSender.User, Text = text }));
+            ScrollMessagesToBottom();
+        }
+
+        private void AddUliMessage(string text, string? hint = null)
+        {
+            _messages.Add(new ChatMessageView(new ChatMessage { Sender = ChatSender.Uli, Text = text }, hint));
+            ScrollMessagesToBottom();
+        }
+
+        // Ohne das hier bleibt der ScrollViewer nach dem Hinzufügen einer neuen Nachricht an der
+        // alten Position stehen — der Nutzer müsste manuell scrollen, um die neueste Antwort zu
+        // sehen (genau der Bug aus dem Testfeedback). UpdateLayout() erzwingt VOR dem Scrollen
+        // einen synchronen Layout-Durchlauf, damit ScrollToEnd() die durch die neue Nachricht
+        // gewachsene Extent-Höhe bereits kennt — ohne das würde exakt eine Nachricht "hinterher"
+        // gescrollt, weil die Bindung sonst erst beim nächsten Layout-Zyklus greift.
+        private void ScrollMessagesToBottom()
+        {
+            MessagesScroll.UpdateLayout();
+            MessagesScroll.ScrollToEnd();
+        }
     }
 }
