@@ -1,0 +1,434 @@
+// Views/Dialogs/SetupDialogs.cs
+using System;
+using System.IO;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Markup;
+using System.Windows.Media;
+using System.Windows.Media.Effects;
+using ULM.Core.Models;
+using ULM.Infrastructure;
+
+namespace ULM.Views.Dialogs
+{
+    // ═════════════════════════════════════════════════════════════════
+    // SETUP DIALOG — fasst Arbeitsordner-Auswahl (nur beim allerersten
+    // Start), Willkommenstext (überspringbar) und Modus-Wahl (immer) in
+    // EINEM Fenster mit Checkboxen und einem einzigen "Übernehmen"-Button
+    // zusammen, statt bis zu drei getrennte Dialoge nacheinander zu zeigen.
+    // ═════════════════════════════════════════════════════════════════
+    public sealed class SetupDialog : Window
+    {
+        public string       ChosenDirectory  { get; private set; } = string.Empty;
+        public bool         DontShowAgain    { get; private set; }
+        public bool         ExpertModeChosen { get; private set; }
+        public AppThemeMode ChosenThemeMode  { get; private set; }
+        public AppLanguage  ChosenLanguage   { get; private set; }
+
+        private static string DefaultBase =>
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "UniversalLinuxManager");
+
+        public SetupDialog(bool showDirectory, bool showWelcome, bool currentExpertMode = false,
+            AppThemeMode currentThemeMode = AppThemeMode.System, AppLanguage currentLanguage = AppLanguage.German)
+        {
+            ChosenThemeMode = currentThemeMode;
+            ChosenLanguage  = currentLanguage;
+            Title  = showWelcome ? LocalizationService.T(Str.Setup_Title_Welcome) : LocalizationService.T(Str.Setup_Title_Settings);
+            // BUGFIX: Breite/Höhe waren fest auf 760x(automatisch bis zu ~950 sichtbaren Pixeln)
+            // ausgelegt — auf kleinen Bildschirmen (getestet: 800x600) ragte das Fenster oben UND
+            // unten über den sichtbaren Arbeitsbereich hinaus, wodurch der "Übernehmen"-Button in
+            // der Fußzeile unsichtbar wurde (ResizeMode=NoResize verhinderte jede Abhilfe durch den
+            // Nutzer). Breite und maximale Höhe orientieren sich jetzt am tatsächlich verfügbaren
+            // Arbeitsbereich (SystemParameters.WorkArea) des Bildschirms, auf dem ULM läuft.
+            double maxW = SystemParameters.WorkArea.Width  - 40;
+            double maxH = SystemParameters.WorkArea.Height - 40;
+            Width     = Math.Max(560, Math.Min(760, maxW));
+            MinWidth  = Math.Min(700, Width);
+            MaxHeight = Math.Max(360, maxH);
+            // SizeToContent wächst bis zur oben gesetzten MaxHeight — reicht der Platz nicht für
+            // den gesamten Inhalt (Erststart mit allen Abschnitten), übernimmt der Sternchen-Zeile
+            // im Grid unten (Body) die Rolle des kompressiblen Bereichs: Kopf- und Fußzeile bleiben
+            // dabei IMMER vollständig sichtbar, nur der mittlere Bereich bekommt einen Scrollbalken.
+            SizeToContent = SizeToContent.Height;
+            ResizeMode = ResizeMode.NoResize;
+            WindowStartupLocation = WindowStartupLocation.CenterScreen;
+            Background = ThemeColors.Bg;
+
+            var root = new Grid();
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });                        // Header
+            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });    // Body (kompressibel)
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });                        // Footer
+
+            // ── HEADER ───────────────────────────────────────────────
+            // BrushHeaderBar statt Verlauf: dieser Streifen soll — genau wie die Kopfzeile des
+            // Hauptfensters — in JEDEM Theme gleich dunkel bleiben, nicht mit dem Farbschema
+            // invertieren (siehe Kommentar in AppTheme.xaml).
+            var header = new Border
+            {
+                Background = ThemeColors.HeaderBar,
+                Padding = new Thickness(28, 22, 28, 22),
+            };
+            var headerContent = new StackPanel { Orientation = Orientation.Horizontal };
+            var icon = new Border
+            {
+                Width = 52, Height = 52, CornerRadius = new CornerRadius(12), Background = ThemeColors.Blue,
+                Margin = new Thickness(0, 0, 16, 0), VerticalAlignment = VerticalAlignment.Center,
+                Effect = new DropShadowEffect { Color = ((SolidColorBrush)ThemeColors.Blue).Color, Opacity = 0.45, BlurRadius = 16, ShadowDepth = 0 },
+            };
+            // BUGFIX: Header-Banner war bisher IMMER "Willkommen ..." — unabhängig von
+            // showWelcome, das bisher nur die separate "ℹ Über ULM"-Karte weiter unten steuerte.
+            // Beim erneuten Öffnen über ⚙ Einstellungen (showWelcome:false) wirkte das verwirrend
+            // ("Willkommen" mitten in einer laufenden Sitzung).
+            icon.Child = new TextBlock { Text = showWelcome ? "🚀" : "⚙", FontSize = 26, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+            headerContent.Children.Add(icon);
+            var titleStack = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            titleStack.Children.Add(new TextBlock
+            {
+                Text = showWelcome ? LocalizationService.T(Str.Setup_Header_Welcome) : LocalizationService.T(Str.Setup_Header_Settings),
+                FontSize = 19, FontWeight = FontWeights.Bold, Foreground = Brushes.White,
+            });
+            titleStack.Children.Add(new TextBlock
+            {
+                Text = showWelcome ? LocalizationService.T(Str.Setup_Subtitle_Welcome) : LocalizationService.T(Str.Setup_Subtitle_Settings),
+                FontSize = 12, Foreground = ThemeColors.Dim, Margin = new Thickness(0, 3, 0, 0),
+            });
+            headerContent.Children.Add(titleStack);
+            header.Child = headerContent;
+            Grid.SetRow(header, 0);
+            root.Children.Add(header);
+
+            // ── BODY ─────────────────────────────────────────────────
+            // Kein fester MaxHeight-Wert mehr nötig — das Fenster selbst begrenzt die Höhe anhand
+            // des tatsächlichen Bildschirm-Arbeitsbereichs (siehe oben), und die Body-Zeile im Grid
+            // ist sternchen-sized, übernimmt also automatisch die Rolle des scrollbaren Bereichs.
+            var scroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+            var body   = new StackPanel { Margin = new Thickness(28, 22, 28, 18) };
+
+            TextBox? txtPath = null;
+            if (showDirectory)
+            {
+                var tbDownloads = new TextBlock { FontFamily = new FontFamily("Consolas, Courier New"), FontSize = 11 };
+                var tbDatabase  = new TextBlock { FontFamily = new FontFamily("Consolas, Courier New"), FontSize = 11 };
+                var tbLog       = new TextBlock { FontFamily = new FontFamily("Consolas, Courier New"), FontSize = 11 };
+                void UpdatePreview(string basePath)
+                {
+                    basePath = basePath.Trim();
+                    tbDownloads.Text = Path.Combine(basePath, "ISOs");
+                    tbDatabase.Text  = Path.Combine(basePath, "ulm_isos.ini");
+                    tbLog.Text       = Path.Combine(basePath, "ulm_log.txt");
+                }
+
+                var section = new StackPanel();
+                section.Children.Add(new TextBlock
+                {
+                    Text = LocalizationService.T(Str.Setup_Directory_Header), FontSize = 12,
+                    FontWeight = FontWeights.SemiBold, Foreground = ThemeColors.Header, Margin = new Thickness(0, 0, 0, 8),
+                });
+
+                var pathRow = new Grid { Margin = new Thickness(0, 0, 0, 10) };
+                pathRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                pathRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+                txtPath = new TextBox
+                {
+                    Text = DefaultBase, Height = 34, VerticalContentAlignment = VerticalAlignment.Center,
+                    Padding = new Thickness(8, 0, 8, 0), FontSize = 12, Background = ThemeColors.White,
+                    Foreground = ThemeColors.Header, BorderBrush = ThemeColors.Border, BorderThickness = new Thickness(1),
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+                var txtPathRef = txtPath;
+                txtPathRef.TextChanged += (_, _) => UpdatePreview(txtPathRef.Text);
+                Grid.SetColumn(txtPathRef, 0);
+                pathRow.Children.Add(txtPathRef);
+
+                var btnBrowse = MakeButton(LocalizationService.T(Str.Setup_Btn_Browse), ThemeColors.Card, ThemeColors.Mid, 110, 34);
+                btnBrowse.Margin = new Thickness(8, 0, 0, 0);
+                btnBrowse.Click += (_, _) =>
+                {
+                    var dlg = new Microsoft.Win32.OpenFolderDialog
+                    {
+                        Title = LocalizationService.T(Str.Setup_FolderDialog_Title),
+                        InitialDirectory = Directory.Exists(txtPathRef.Text) ? txtPathRef.Text : Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+                    };
+                    if (dlg.ShowDialog() == true) txtPathRef.Text = dlg.FolderName;
+                };
+                Grid.SetColumn(btnBrowse, 1);
+                pathRow.Children.Add(btnBrowse);
+                section.Children.Add(pathRow);
+
+                var btnDefault = MakeButton(LocalizationService.T(Str.Setup_Btn_UseDefaultPath), ThemeColors.Bg, ThemeColors.Mid, 190, 30);
+                btnDefault.BorderBrush = ThemeColors.Border; btnDefault.BorderThickness = new Thickness(1);
+                btnDefault.HorizontalAlignment = HorizontalAlignment.Left;
+                btnDefault.Margin = new Thickness(0, 0, 0, 14);
+                btnDefault.Click += (_, _) => txtPathRef.Text = DefaultBase;
+                section.Children.Add(btnDefault);
+
+                section.Children.Add(new TextBlock { Text = LocalizationService.T(Str.Setup_Directory_ItemsIntro), FontSize = 11.5, FontWeight = FontWeights.SemiBold, Foreground = ThemeColors.Header, Margin = new Thickness(0, 0, 0, 6) });
+                var previewBorder = new Border
+                {
+                    Background = ThemeColors.LBlue, BorderBrush = ThemeColors.Border, BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(6), Padding = new Thickness(12, 10, 12, 10),
+                };
+                var previewGrid = new Grid();
+                previewGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                previewGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                for (int i = 0; i < 3; i++) previewGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                AddPreviewRow(previewGrid, 0, LocalizationService.T(Str.Setup_Directory_ItemDownloads), tbDownloads);
+                AddPreviewRow(previewGrid, 1, LocalizationService.T(Str.Setup_Directory_ItemDatabase),  tbDatabase);
+                AddPreviewRow(previewGrid, 2, LocalizationService.T(Str.Setup_Directory_ItemLog),       tbLog);
+                previewBorder.Child = previewGrid;
+                section.Children.Add(previewBorder);
+
+                body.Children.Add(MakeCard(LocalizationService.T(Str.Setup_Card_Directory), section));
+                UpdatePreview(DefaultBase);
+            }
+
+            if (showWelcome)
+            {
+                var section = new StackPanel();
+                section.Children.Add(new TextBlock
+                {
+                    Text = LocalizationService.T(Str.Setup_WelcomeBody),
+                    TextWrapping = TextWrapping.Wrap, FontSize = 12, LineHeight = 17,
+                    Foreground = ThemeColors.Mid,
+                });
+                body.Children.Add(MakeCard(LocalizationService.T(Str.Setup_Card_AboutUlm), section));
+            }
+
+            var modeSection = new StackPanel();
+            var chkExpert = new CheckBox
+            {
+                Content = LocalizationService.T(Str.Setup_Chk_ExpertMode),
+                FontSize = 12.5, FontWeight = FontWeights.SemiBold, Foreground = ThemeColors.Header,
+                VerticalContentAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 0, 8),
+                IsChecked = currentExpertMode, // merkt sich die zuletzt gewählte Einstellung
+            };
+            modeSection.Children.Add(chkExpert);
+            modeSection.Children.Add(new TextBlock
+            {
+                Text = LocalizationService.T(Str.Setup_Hint_Mode),
+                TextWrapping = TextWrapping.Wrap, Foreground = ThemeColors.Dim, FontSize = 11, LineHeight = 16,
+            });
+            body.Children.Add(MakeCard(LocalizationService.T(Str.Setup_Card_Mode), modeSection));
+
+            // ── Autostart ────────────────────────────────────────────
+            var autostartSection = new StackPanel();
+            var chkAutostart = new CheckBox
+            {
+                Content = LocalizationService.T(Str.Setup_Chk_Autostart),
+                FontSize = 12.5, FontWeight = FontWeights.SemiBold, Foreground = ThemeColors.Header,
+                VerticalContentAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 0, 8),
+                IsChecked = AutostartService.IsEnabled(),
+            };
+            autostartSection.Children.Add(chkAutostart);
+            autostartSection.Children.Add(new TextBlock
+            {
+                Text = LocalizationService.T(Str.Setup_Hint_Autostart),
+                TextWrapping = TextWrapping.Wrap, Foreground = ThemeColors.Dim, FontSize = 11, LineHeight = 16,
+            });
+            body.Children.Add(MakeCard(LocalizationService.T(Str.Setup_Card_Autostart), autostartSection));
+
+            // ── Design (System / Hell / Dunkel) ─────────────────────────
+            var themeSection = new StackPanel();
+            var themeRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 8) };
+            var themeButtons = new System.Collections.Generic.Dictionary<AppThemeMode, Button>();
+            void UpdateThemeButtons()
+            {
+                foreach (var (mode, btn) in themeButtons)
+                {
+                    bool active = mode == ChosenThemeMode;
+                    btn.Background = active ? ThemeColors.Blue : ThemeColors.Card;
+                    btn.Foreground = active ? Brushes.White : ThemeColors.Mid;
+                }
+            }
+            void AddThemeButton(AppThemeMode mode, string label)
+            {
+                var btn = MakeButton(label, ThemeColors.Card, ThemeColors.Mid, 110, 32);
+                btn.Margin = new Thickness(0, 0, 8, 0);
+                btn.Click += (_, _) => { ChosenThemeMode = mode; UpdateThemeButtons(); };
+                themeButtons[mode] = btn;
+                themeRow.Children.Add(btn);
+            }
+            AddThemeButton(AppThemeMode.System, "🌓 " + LocalizationService.T(Str.Setup_Theme_System));
+            AddThemeButton(AppThemeMode.Light,  "☀ "  + LocalizationService.T(Str.Setup_Theme_Light));
+            AddThemeButton(AppThemeMode.Dark,   "🌙 " + LocalizationService.T(Str.Setup_Theme_Dark));
+            UpdateThemeButtons();
+            themeSection.Children.Add(themeRow);
+            themeSection.Children.Add(new TextBlock
+            {
+                Text = LocalizationService.T(Str.Setup_Hint_Theme),
+                TextWrapping = TextWrapping.Wrap, Foreground = ThemeColors.Dim, FontSize = 11, LineHeight = 16,
+            });
+            body.Children.Add(MakeCard(LocalizationService.T(Str.Setup_Card_Design), themeSection));
+
+            // ── Sprache (Deutsch / English) ─────────────────────────────
+            var langSection = new StackPanel();
+            var langRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 8) };
+            var langButtons = new System.Collections.Generic.Dictionary<AppLanguage, Button>();
+            void UpdateLangButtons()
+            {
+                foreach (var (lang, btn) in langButtons)
+                {
+                    bool active = lang == ChosenLanguage;
+                    btn.Background = active ? ThemeColors.Blue : ThemeColors.Card;
+                    btn.Foreground = active ? Brushes.White : ThemeColors.Mid;
+                }
+            }
+            void AddLangButton(AppLanguage lang, string label)
+            {
+                var btn = MakeButton(label, ThemeColors.Card, ThemeColors.Mid, 130, 32);
+                btn.Margin = new Thickness(0, 0, 8, 0);
+                btn.Click += (_, _) => { ChosenLanguage = lang; UpdateLangButtons(); };
+                langButtons[lang] = btn;
+                langRow.Children.Add(btn);
+            }
+            AddLangButton(AppLanguage.German,  "🇩🇪 Deutsch");
+            AddLangButton(AppLanguage.English, "🇬🇧 English");
+            UpdateLangButtons();
+            langSection.Children.Add(langRow);
+            langSection.Children.Add(new TextBlock
+            {
+                Text = LocalizationService.T(Str.Setup_Hint_Language),
+                TextWrapping = TextWrapping.Wrap, Foreground = ThemeColors.Dim, FontSize = 11, LineHeight = 16,
+            });
+            body.Children.Add(MakeCard(LocalizationService.T(Str.Setup_Card_Language), langSection));
+
+            scroll.Content = body;
+            Grid.SetRow(scroll, 1);
+            root.Children.Add(scroll);
+
+            // ── FOOTER ───────────────────────────────────────────────
+            // "Beim nächsten Start überspringen" ist jetzt IMMER sichtbar (nicht mehr nur, wenn
+            // der Willkommenstext gezeigt wird) — sie steuert das gesamte Einrichtungsfenster,
+            // nicht nur den Begrüßungstext. Siehe BUGFIX-Kommentar in App.xaml.cs: vorher blieb
+            // das Fenster trotz gesetzter Checkbox bei jedem Start sichtbar, weil sie nur den
+            // Willkommens-Abschnitt, nie den ganzen Dialog abschaltete.
+            var footerGrid = new Grid { Margin = new Thickness(0) };
+            footerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            footerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var chkDontShowAgain = new CheckBox
+            {
+                Content = LocalizationService.T(Str.Setup_Chk_DontShowAgain),
+                FontSize = 11, Foreground = ThemeColors.Mid,
+                VerticalAlignment = VerticalAlignment.Center, VerticalContentAlignment = VerticalAlignment.Center,
+            };
+            Grid.SetColumn(chkDontShowAgain, 0);
+            footerGrid.Children.Add(chkDontShowAgain);
+
+            var btnApply = MakeButton(LocalizationService.T(Str.Setup_Btn_Apply), ThemeColors.Blue, Brushes.White, 160, 40);
+            btnApply.FontWeight = FontWeights.SemiBold;
+            btnApply.HorizontalAlignment = HorizontalAlignment.Right;
+            btnApply.Click += (_, _) =>
+            {
+                string chosen = string.Empty;
+                if (showDirectory)
+                {
+                    chosen = txtPath!.Text.Trim();
+                    if (string.IsNullOrWhiteSpace(chosen)) return;
+                    try { Directory.CreateDirectory(chosen); }
+                    catch (Exception ex)
+                    {
+                        MessageBox.Show(
+                            LocalizationService.T(Str.Setup_Error_FolderCreateFailed) + "\n" + ex.Message,
+                            LocalizationService.T(Str.Setup_Error_Title),
+                            MessageBoxButton.OK, MessageBoxImage.Error);
+                        return;
+                    }
+                }
+                ChosenDirectory  = chosen;
+                DontShowAgain    = chkDontShowAgain.IsChecked == true;
+                ExpertModeChosen = chkExpert.IsChecked == true;
+                if (chkAutostart.IsChecked == true) AutostartService.Enable(); else AutostartService.Disable();
+                DialogResult = true;
+                Close();
+            };
+            Grid.SetColumn(btnApply, 1);
+            footerGrid.Children.Add(btnApply);
+
+            var btnBorder = new Border
+            {
+                BorderBrush = ThemeColors.Border, BorderThickness = new Thickness(0, 1, 0, 0),
+                Padding = new Thickness(24, 14, 24, 14), Background = ThemeColors.White,
+                Child = footerGrid,
+            };
+            Grid.SetRow(btnBorder, 2);
+            root.Children.Add(btnBorder);
+
+            Content = root;
+        }
+
+        // ── UI-Hilfsmethoden ────────────────────────────────────────────
+        private static UIElement MakeCard(string title, UIElement content)
+        {
+            var card = new Border
+            {
+                Background = ThemeColors.White, BorderBrush = ThemeColors.Border, BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(12), Padding = new Thickness(20, 18, 20, 18), Margin = new Thickness(0, 0, 0, 16),
+                Effect = new DropShadowEffect { Color = Colors.Black, Opacity = 0.06, BlurRadius = 14, ShadowDepth = 3, Direction = 270 },
+            };
+            var stack = new StackPanel();
+            stack.Children.Add(new TextBlock { Text = title, FontSize = 14, FontWeight = FontWeights.Bold, Foreground = ThemeColors.Header, Margin = new Thickness(0, 0, 0, 12) });
+            stack.Children.Add(content);
+            card.Child = stack;
+            return card;
+        }
+
+        private static void AddPreviewRow(Grid grid, int row, string label, TextBlock valueBlock)
+        {
+            var lbl = new TextBlock
+            {
+                Text = label + ":", FontSize = 11, FontWeight = FontWeights.SemiBold, Foreground = ThemeColors.Blue,
+                Margin = new Thickness(0, 0, 12, row < 2 ? 6 : 0), VerticalAlignment = VerticalAlignment.Center, Width = 110,
+            };
+            Grid.SetRow(lbl, row); Grid.SetColumn(lbl, 0);
+            grid.Children.Add(lbl);
+
+            valueBlock.Foreground = ThemeColors.Mid;
+            valueBlock.TextWrapping = TextWrapping.Wrap;
+            valueBlock.VerticalAlignment = VerticalAlignment.Center;
+            valueBlock.Margin = new Thickness(0, 0, 0, row < 2 ? 6 : 0);
+            Grid.SetRow(valueBlock, row); Grid.SetColumn(valueBlock, 1);
+            grid.Children.Add(valueBlock);
+        }
+
+        private static Button MakeButton(string label, Brush bg, Brush fg, double width, double height)
+        {
+            return new Button
+            {
+                Content = label, Width = width, Height = height,
+                Background = bg, Foreground = fg, BorderThickness = new Thickness(0), FontSize = 12, Cursor = Cursors.Hand,
+                Template = RoundedButtonTemplate,
+            };
+        }
+
+        // Abgerundete Buttons statt der eckigen Standard-Windows-Chrome — für einen etwas
+        // moderneren Eindruck, mit dezentem Hover-/Press-Feedback über Opacity-Trigger.
+        private static readonly ControlTemplate RoundedButtonTemplate = BuildRoundedButtonTemplate();
+
+        private static ControlTemplate BuildRoundedButtonTemplate()
+        {
+            var border = new FrameworkElementFactory(typeof(Border), "Bd");
+            border.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Button.BackgroundProperty));
+            border.SetValue(Border.BorderBrushProperty, new TemplateBindingExtension(Button.BorderBrushProperty));
+            border.SetValue(Border.BorderThicknessProperty, new TemplateBindingExtension(Button.BorderThicknessProperty));
+            border.SetValue(Border.CornerRadiusProperty, new CornerRadius(7));
+            border.SetValue(Border.SnapsToDevicePixelsProperty, true);
+
+            var presenter = new FrameworkElementFactory(typeof(ContentPresenter));
+            presenter.SetValue(ContentPresenter.HorizontalAlignmentProperty, HorizontalAlignment.Center);
+            presenter.SetValue(ContentPresenter.VerticalAlignmentProperty, VerticalAlignment.Center);
+            border.AppendChild(presenter);
+
+            var template = new ControlTemplate(typeof(Button)) { VisualTree = border };
+            var hover = new Trigger { Property = Button.IsMouseOverProperty, Value = true };
+            hover.Setters.Add(new Setter(Border.OpacityProperty, 0.88, "Bd"));
+            template.Triggers.Add(hover);
+            var pressed = new Trigger { Property = Button.IsPressedProperty, Value = true };
+            pressed.Setters.Add(new Setter(Border.OpacityProperty, 0.75, "Bd"));
+            template.Triggers.Add(pressed);
+            return template;
+        }
+    }
+}

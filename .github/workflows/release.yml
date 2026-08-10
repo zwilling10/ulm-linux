@@ -1,0 +1,51 @@
+name: Release
+
+# Läuft nur bei einem Tag-Push nach Schema "v*" (z.B. v2.27.2) — baut die portable EXE UND den
+# Windows-Installer (Setup.exe, siehe installer/ULM.iss) über das bestehende build-release.sh und
+# hängt beide automatisch als GitHub-Release-Assets an, statt das manuell lokal auszuführen und
+# hochzuladen. Inno Setup (ISCC.exe) ist auf dem windows-latest-Runner bereits vorinstalliert
+# (siehe actions/runner-images Software-Liste), kein zusätzlicher Setup-Schritt nötig.
+on:
+  push:
+    tags:
+      - "v*"
+  # Manuelles Nachtriggern für einen bereits existierenden Tag — z.B. wenn der Workflow beim
+  # ersten Tag-Push aus einem anderen Grund fehlschlug (siehe build-release.sh: der frühere
+  # 'zip'-Bug ließ jeden Release-Versuch scheitern, OHNE dass ein Release erstellt wurde).
+  # Ohne diesen Trigger musste man dafür bisher den Tag lokal+remote löschen und neu pushen.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Bereits existierender Tag, für den das Release (nach)gebaut werden soll (z.B. v2.30.0)"
+        required: true
+
+permissions:
+  contents: write # nötig, damit gh release create mit dem automatischen GITHUB_TOKEN funktioniert
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - name: .NET 8 SDK einrichten
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Portable EXE + Installer bauen
+        shell: bash
+        run: ./build-release.sh --zip --installer
+
+      - name: GitHub Release erstellen und EXE anhängen
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
+          gh release create "$TAG" release/*.exe release/*.zip release/SHA256SUMS \
+            --title "Universal Linux Manager $TAG" \
+            --generate-notes
