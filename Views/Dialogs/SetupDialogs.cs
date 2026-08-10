@@ -41,10 +41,13 @@ namespace ULM.Views.Dialogs
             // der Fußzeile unsichtbar wurde (ResizeMode=NoResize verhinderte jede Abhilfe durch den
             // Nutzer). Breite und maximale Höhe orientieren sich jetzt am tatsächlich verfügbaren
             // Arbeitsbereich (SystemParameters.WorkArea) des Bildschirms, auf dem ULM läuft.
+            // Breiter als früher (war 560–760): die "Über ULM"-Karte ist jetzt in einem eigenen
+            // WelcomeDialog ausgelagert (siehe Views/Dialogs/WelcomeDialog.cs), wodurch dieses
+            // Fenster kürzer geworden ist — bewusst breiter statt quadratisch-gedrungen gehalten.
             double maxW = SystemParameters.WorkArea.Width  - 40;
             double maxH = SystemParameters.WorkArea.Height - 40;
-            Width     = Math.Max(560, Math.Min(760, maxW));
-            MinWidth  = Math.Min(700, Width);
+            Width     = Math.Max(680, Math.Min(880, maxW));
+            MinWidth  = Math.Min(800, Width);
             MaxHeight = Math.Max(360, maxH);
             // SizeToContent wächst bis zur oben gesetzten MaxHeight — reicht der Platz nicht für
             // den gesamten Inhalt (Erststart mit allen Abschnitten), übernimmt der Sternchen-Zeile
@@ -182,18 +185,6 @@ namespace ULM.Views.Dialogs
 
                 body.Children.Add(MakeCard(LocalizationService.T(Str.Setup_Card_Directory), section));
                 UpdatePreview(DefaultBase);
-            }
-
-            if (showWelcome)
-            {
-                var section = new StackPanel();
-                section.Children.Add(new TextBlock
-                {
-                    Text = LocalizationService.T(Str.Setup_WelcomeBody),
-                    TextWrapping = TextWrapping.Wrap, FontSize = 12, LineHeight = 17,
-                    Foreground = ThemeColors.Mid,
-                });
-                body.Children.Add(MakeCard(LocalizationService.T(Str.Setup_Card_AboutUlm), section));
             }
 
             var modeSection = new StackPanel();
@@ -360,7 +351,9 @@ namespace ULM.Views.Dialogs
         }
 
         // ── UI-Hilfsmethoden ────────────────────────────────────────────
-        private static UIElement MakeCard(string title, UIElement content)
+        // internal statt private: WelcomeDialog (Views/Dialogs/WelcomeDialog.cs) nutzt dieselbe
+        // Karten-/Button-Optik für einen einheitlichen Auftritt, statt sie zu duplizieren.
+        internal static UIElement MakeCard(string title, UIElement content)
         {
             var card = new Border
             {
@@ -393,7 +386,7 @@ namespace ULM.Views.Dialogs
             grid.Children.Add(valueBlock);
         }
 
-        private static Button MakeButton(string label, Brush bg, Brush fg, double width, double height)
+        internal static Button MakeButton(string label, Brush bg, Brush fg, double width, double height)
         {
             return new Button
             {

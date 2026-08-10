@@ -91,6 +91,9 @@ namespace ULM.Infrastructure
                 "• Integrierte Ventoy-Installation & Secure-Boot-Support\n" +
                 "• Parallele Downloads für maximale Performance",
 
+            [Str.Welcome_Title]                  = "Universal Linux Manager — Willkommen",
+            [Str.Welcome_Btn_Continue]           = "Weiter →",
+
             [Str.Setup_Card_Mode]                = "👤 Modus",
             [Str.Setup_Chk_ExpertMode]           = "Experten-Modus aktivieren (alle Funktionen sichtbar)",
             [Str.Setup_Hint_Mode]                =
@@ -1090,6 +1093,9 @@ namespace ULM.Infrastructure
                 "• Automated URL checking & version detection\n" +
                 "• Integrated Ventoy installation & Secure Boot support\n" +
                 "• Parallel downloads for maximum performance",
+
+            [Str.Welcome_Title]                  = "Universal Linux Manager — Welcome",
+            [Str.Welcome_Btn_Continue]           = "Continue →",
 
             [Str.Setup_Card_Mode]                = "👤 Mode",
             [Str.Setup_Chk_ExpertMode]           = "Enable expert mode (all features visible)",

@@ -42,6 +42,10 @@ namespace ULM.Infrastructure
         Setup_Card_AboutUlm,
         Setup_WelcomeBody,
 
+        // WelcomeDialog: eigenständiges Begrüßungsfenster VOR dem SetupDialog (nur Erststart)
+        Welcome_Title,
+        Welcome_Btn_Continue,
+
         // SetupDialog: Modus-Karte
         Setup_Card_Mode,
         Setup_Chk_ExpertMode,
