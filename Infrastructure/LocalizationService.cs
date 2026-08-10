@@ -15,6 +15,12 @@ namespace ULM.Infrastructure
 
         public static void Initialize() => Current = LoadFromIni(AppPaths.Instance.SettingsIni);
 
+        // Für Aufrufer außerhalb des Windows-Portable-Pfadmodells (z.B. das Linux-GUI-Projekt,
+        // das seine Einstellungsdatei über XDG-Verzeichnisse statt AppPaths.Instance.SettingsIni
+        // auflöst). AppPaths.SettingsIni ist bewusst nicht umleitbar (siehe AppPaths.cs) — dieser
+        // Overload umgeht das für Aufrufer, die ihren eigenen Pfad kennen.
+        internal static void Initialize(string settingsIniPath) => Current = LoadFromIni(settingsIniPath);
+
         // Testbar ohne Application.Current/UI-Zugriff — nur Datei-IO über IniService.
         internal static AppLanguage LoadFromIni(string settingsIniPath)
         {
@@ -1034,6 +1040,16 @@ namespace ULM.Infrastructure
 
             // ── IsoEditDialog/ManualSourceSearchDialog: zweites Beschreibungsfeld (TipEn) ──
             [Str.Db_Field_DescriptionEn] = "Beschreibung (Englisch, optional)",
+
+            // ── Linux-GUI (Phase 1) ──
+            [Str.Linux_Category_All]              = "Alle",
+            [Str.Linux_Toolbar_SearchPlaceholder] = "Distro suchen…",
+            [Str.Linux_Toolbar_Refresh]           = "Aktualisieren",
+            [Str.Linux_Download_NoUrl]            = "Keine Download-URL hinterlegt.",
+            [Str.Linux_Download_Failed]           = "Download fehlgeschlagen.",
+            [Str.Linux_Copy_NoDrive]               = "Kein USB-Stick ausgewählt.",
+            [Str.Linux_Copy_Done]                  = "Kopiert.",
+            [Str.Linux_Copy_Failed]                = "Kopieren fehlgeschlagen.",
         };
 
         private static readonly Dictionary<Str, string> En = new()
@@ -2024,6 +2040,16 @@ namespace ULM.Infrastructure
 
             // ── IsoEditDialog/ManualSourceSearchDialog: second description field (TipEn) ──
             [Str.Db_Field_DescriptionEn] = "Description (English, optional)",
+
+            // ── Linux GUI (Phase 1) ──
+            [Str.Linux_Category_All]              = "All",
+            [Str.Linux_Toolbar_SearchPlaceholder] = "Search distro…",
+            [Str.Linux_Toolbar_Refresh]           = "Refresh",
+            [Str.Linux_Download_NoUrl]            = "No download URL configured.",
+            [Str.Linux_Download_Failed]           = "Download failed.",
+            [Str.Linux_Copy_NoDrive]               = "No USB stick selected.",
+            [Str.Linux_Copy_Done]                  = "Copied.",
+            [Str.Linux_Copy_Failed]                = "Copy failed.",
         };
     }
 }

@@ -499,5 +499,15 @@ namespace ULM.Infrastructure
 
         // ── IsoEditDialog/ManualSourceSearchDialog: zweites Beschreibungsfeld (TipEn) ──
         Db_Field_DescriptionEn,
+
+        // ── Linux-GUI (Phase 1) ─────────────────────────────────────────
+        Linux_Category_All,
+        Linux_Toolbar_SearchPlaceholder,
+        Linux_Toolbar_Refresh,
+        Linux_Download_NoUrl,
+        Linux_Download_Failed,
+        Linux_Copy_NoDrive,
+        Linux_Copy_Done,
+        Linux_Copy_Failed,
     }
 }

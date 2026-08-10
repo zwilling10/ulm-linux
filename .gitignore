@@ -8,6 +8,10 @@ release/*.exe
 release/*.zip
 release/SHA256SUMS
 
+# Linux-GUI: manueller Publish-Ausgabeordner (dotnet publish -o Linux/publish-out),
+# self-contained Binary fuer den manuellen Test auf Linux Mint, nicht Teil des Quellcodes.
+Linux/publish-out/
+
 # Laufzeit-Daten (ISOs, Datenbank, Logs — nicht Teil des Quellcodes)
 ISOs/
 *.iso

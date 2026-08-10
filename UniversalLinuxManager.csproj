@@ -103,6 +103,14 @@
     <None    Remove="ULM.Tests\**" />
     <Content Remove="ULM.Tests\**" />
     <EmbeddedResource Remove="ULM.Tests\**" />
+    <!-- Linux/ enthaelt das eigenstaendige ULM.Linux-Projekt (eigenes .csproj, eigene .axaml/.cs-
+         Dateien, teils dieselben Core-/Infrastructure-Dateien per <Compile Include> zweitverwendet)
+         — ohne diesen Ausschluss kompiliert der implizite Compile-Glob dieses Hauptprojekts sie
+         versehentlich mit (Avalonia-/xunit-Referenzen existieren hier nicht). -->
+    <Compile Remove="Linux\**" />
+    <None    Remove="Linux\**" />
+    <Content Remove="Linux\**" />
+    <EmbeddedResource Remove="Linux\**" />
   </ItemGroup>
 
 </Project>

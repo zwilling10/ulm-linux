@@ -1,0 +1,78 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>ULM.Linux</RootNamespace>
+    <AssemblyName>ulm-linux</AssemblyName>
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+
+    <!-- Self-contained Single-File fuer linux-x64, analog zum bestehenden win-x64-Publish in
+         UniversalLinuxManager.csproj. Siehe docs/superpowers/specs/2026-07-28-linux-gui-design.md. -->
+    <RuntimeIdentifier>linux-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+
+    <!-- Ohne dies verlangt die self-contained-Binary libicu auf dem Zielsystem (FailFast beim
+         Start: "Please install libicu ..."), was der "keine Abhaengigkeiten"-Philosophie
+         widerspricht. Verzichtet auf ICU-basierte Kultur-/Sortier-/Formatierungslogik zugunsten
+         von Invariant-Culture-Verhalten — LocalizationService.DetectFromCulture(CurrentUICulture)
+         faellt dadurch beim allerersten Start (noch keine gespeicherte Sprachwahl) auf Englisch
+         zurueck statt die Linux-Systemsprache zu erkennen; Nutzer kann die Sprache jederzeit ueber
+         den Umschalter im Hauptfenster wechseln. -->
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="11.3.18" />
+    <PackageReference Include="Avalonia.Desktop" Version="11.3.18" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.18" />
+  </ItemGroup>
+
+  <!-- ULM.Linux.Tests liegt als Unterordner im selben Verzeichnisbaum — ohne diesen Ausschluss
+       kompiliert der implizite Compile-Glob dieses Projekts die Testdateien versehentlich mit
+       (dort referenzierte xunit-Attribute existieren hier nicht). Gleiches Muster wie in
+       UniversalLinuxManager.csproj fuer ULM.Tests. -->
+  <ItemGroup>
+    <Compile Remove="ULM.Linux.Tests\**" />
+    <None    Remove="ULM.Linux.Tests\**" />
+    <Content Remove="ULM.Linux.Tests\**" />
+    <AvaloniaResource Remove="ULM.Linux.Tests\**" />
+  </ItemGroup>
+
+  <!-- Kein explizites <AvaloniaResource Include="**\*.axaml" /> hier — das Avalonia-NuGet-Paket
+       bringt dafuer bereits ein automatisches Default-Glob mit; ein zusaetzliches eigenes Glob
+       fuehrt zu "Duplicate x:Class directive"-Fehlern (jede .axaml-Datei waere doppelt erfasst). -->
+
+  <!-- Erlaubt ULM.Linux.Tests Zugriff auf 'internal' Klassen/Methoden — gleiches Muster wie
+       UniversalLinuxManager.csproj es fuer ULM.Tests bereits nutzt. -->
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>ULM.Linux.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+  <!-- Core/Infrastructure-Dateien als Quelltext eingebunden (gleiche Datei, zweites Projekt) statt
+       per ProjectReference — UniversalLinuxManager.csproj ist net8.0-windows/WPF und kann nicht
+       plattformneutral referenziert werden. Nur explizit geprüfte, WPF-freie Dateien (siehe
+       docs/superpowers/specs/2026-07-28-linux-gui-design.md). -->
+  <ItemGroup>
+    <Compile Include="..\Core\Models\IsoEntry.cs" Link="Core\Models\IsoEntry.cs" />
+    <Compile Include="..\Core\Models\Constants.cs" Link="Core\Models\Constants.cs" />
+    <Compile Include="..\Core\Models\UsbDrive.cs" Link="Core\Models\UsbDrive.cs" />
+    <Compile Include="..\Core\Services\HttpService.cs" Link="Core\Services\HttpService.cs" />
+    <Compile Include="..\Core\Services\HttpService.DistroResolvers.cs" Link="Core\Services\HttpService.DistroResolvers.cs" />
+    <Compile Include="..\Core\Services\IsoDatabaseService.cs" Link="Core\Services\IsoDatabaseService.cs" />
+    <Compile Include="..\Core\Services\UsbService.cs" Link="Core\Services\UsbService.cs" />
+    <Compile Include="..\Infrastructure\AppLanguage.cs" Link="Infrastructure\AppLanguage.cs" />
+    <Compile Include="..\Infrastructure\Str.cs" Link="Infrastructure\Str.cs" />
+    <Compile Include="..\Infrastructure\LocalizationService.cs" Link="Infrastructure\LocalizationService.cs" />
+    <Compile Include="..\Infrastructure\IniService.cs" Link="Infrastructure\IniService.cs" />
+    <Compile Include="..\Infrastructure\AppPaths.cs" Link="Infrastructure\AppPaths.cs" />
+    <Compile Include="..\ViewModels\ViewModelBase.cs" Link="ViewModels\ViewModelBase.cs" />
+  </ItemGroup>
+
+</Project>
