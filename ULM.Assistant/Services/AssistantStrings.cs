@@ -22,7 +22,7 @@ namespace ULM.Assistant.Services
             AssistantStr.SendButton       => "Senden",
             AssistantStr.Fallback         => "Das habe ich leider nicht verstanden — hier sind die Themen, bei denen ich helfen kann:",
             AssistantStr.BackToOverview   => "⬅ Zur Übersicht",
-            AssistantStr.BestGuessPrefix  => "Ich bin mir nicht ganz sicher, aber das passt vermutlich am ehesten:",
+            AssistantStr.BestGuessPrefix  => "? Beste Vermutung, nicht ganz sicher",
             _ => "",
         };
 
@@ -34,7 +34,7 @@ namespace ULM.Assistant.Services
             AssistantStr.SendButton       => "Send",
             AssistantStr.Fallback         => "I'm sorry, I didn't understand that — here are the topics I can help with:",
             AssistantStr.BackToOverview   => "⬅ Back to overview",
-            AssistantStr.BestGuessPrefix  => "I'm not entirely sure, but this is probably the closest match:",
+            AssistantStr.BestGuessPrefix  => "? Best guess, not entirely sure",
             _ => "",
         };
     }

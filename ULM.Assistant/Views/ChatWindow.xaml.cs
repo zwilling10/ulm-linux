@@ -23,8 +23,9 @@ namespace ULM.Assistant.Views
             _catalog  = FaqCatalogService.Instance.Catalog;
 
             Title = AssistantStrings.T(AssistantStr.WindowTitle, _language);
-            HeaderText.Text = "🐧 " + AssistantStrings.T(AssistantStr.WindowTitle, _language);
-            SendButton.Content = AssistantStrings.T(AssistantStr.SendButton, _language);
+            HeaderTitle.Text    = "Uli";
+            HeaderSubtitle.Text = AssistantStrings.T(AssistantStr.WindowTitle, _language);
+            InputPlaceholder.Text = AssistantStrings.T(AssistantStr.InputPlaceholder, _language);
             InputBox.Text = "";
             MessagesList.ItemsSource = _messages;
 
@@ -51,8 +52,7 @@ namespace ULM.Assistant.Views
             var back = new Button
             {
                 Content = AssistantStrings.T(AssistantStr.BackToOverview, _language),
-                Style = Application.Current.Resources["BtnGhost"] as Style,
-                Margin = new Thickness(0, 0, 6, 6),
+                Style = (Style)FindResource("ChipButtonStyle"),
             };
             back.Click += (_, _) => ShowMainTopics();
             SuggestionsPanel.Children.Add(back);
@@ -60,12 +60,16 @@ namespace ULM.Assistant.Views
 
         private Button BuildSuggestionButton(FaqEntry entry)
         {
-            string label = _language == AssistantLanguage.German ? entry.QuestionLabelDe : entry.QuestionLabelEn;
+            string chip = _language == AssistantLanguage.German ? entry.ChipLabelDe : entry.ChipLabelEn;
+            // Fallback für ältere assistant_faq.json-Dateien ohne ChipLabel (vor dieser Erweiterung
+            // erzeugt) — sonst stünde ein leerer Button da.
+            if (string.IsNullOrWhiteSpace(chip))
+                chip = _language == AssistantLanguage.German ? entry.QuestionLabelDe : entry.QuestionLabelEn;
+
             var btn = new Button
             {
-                Content = label,
-                Style = Application.Current.Resources["BtnSecondary"] as Style,
-                Margin = new Thickness(0, 0, 6, 6),
+                Content = chip,
+                Style = (Style)FindResource("ChipButtonStyle"),
                 Tag = entry.Id,
             };
             btn.Click += (_, _) => AnswerTopic(entry);
@@ -88,6 +92,11 @@ namespace ULM.Assistant.Views
             if (e.Key == Key.Enter) SubmitInput();
         }
 
+        private void InputBox_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            InputPlaceholder.Visibility = InputBox.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+        }
+
         private void SubmitInput()
         {
             string text = InputBox.Text.Trim();
@@ -105,14 +114,13 @@ namespace ULM.Assistant.Views
             else
             {
                 string answer = _language == AssistantLanguage.German ? match.AnswerDe : match.AnswerEn;
-                if (result.IsBestGuess)
-                    answer = AssistantStrings.T(AssistantStr.BestGuessPrefix, _language) + "\n\n" + answer;
-                AddUliMessage(answer);
+                string? hint  = result.IsBestGuess ? AssistantStrings.T(AssistantStr.BestGuessPrefix, _language) : null;
+                AddUliMessage(answer, hint);
                 ShowRelated(match);
             }
         }
 
         private void AddUserMessage(string text) => _messages.Add(new ChatMessageView(new ChatMessage { Sender = ChatSender.User, Text = text }));
-        private void AddUliMessage(string text)  => _messages.Add(new ChatMessageView(new ChatMessage { Sender = ChatSender.Uli,  Text = text }));
+        private void AddUliMessage(string text, string? hint = null)  => _messages.Add(new ChatMessageView(new ChatMessage { Sender = ChatSender.Uli, Text = text }, hint));
     }
 }

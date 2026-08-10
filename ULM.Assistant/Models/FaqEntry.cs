@@ -13,6 +13,12 @@ namespace ULM.Assistant.Models
         public List<string> KeywordsEn { get; set; } = new();
         public string QuestionLabelDe { get; set; } = "";
         public string QuestionLabelEn { get; set; } = "";
+        // Kurzes Chip-Label (1-3 Wörter, z.B. "ISO suchen") für die Vorschlag-Buttons im Chat —
+        // getrennt von QuestionLabel (voller Fragesatz, wird als Chat-Bubble angezeigt, wenn der
+        // Chip geklickt wird). Leer bei älteren, vor dieser Erweiterung erzeugten
+        // assistant_faq.json-Dateien — ChatWindow fällt dann auf QuestionLabel zurück.
+        public string ChipLabelDe { get; set; } = "";
+        public string ChipLabelEn { get; set; } = "";
         public string AnswerDe { get; set; } = "";
         public string AnswerEn { get; set; } = "";
         public List<string> RelatedIds { get; set; } = new();

@@ -75,6 +75,8 @@ namespace ULM.Tests
             {
                 Assert.False(string.IsNullOrWhiteSpace(entry.QuestionLabelDe));
                 Assert.False(string.IsNullOrWhiteSpace(entry.QuestionLabelEn));
+                Assert.False(string.IsNullOrWhiteSpace(entry.ChipLabelDe));
+                Assert.False(string.IsNullOrWhiteSpace(entry.ChipLabelEn));
                 Assert.False(string.IsNullOrWhiteSpace(entry.AnswerDe));
                 Assert.False(string.IsNullOrWhiteSpace(entry.AnswerEn));
                 Assert.True(entry.KeywordsDe.Count > 0);
