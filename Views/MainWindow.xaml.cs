@@ -688,6 +688,11 @@ namespace ULM.Views
         private void CheckDriveChanges()
         {
             if (_vm.IsBusy) return;
+            // Läuft bewusst VOR RefreshDrives(): wird hier ein roher (buchstabenloser) USB-
+            // Datenträger vorbereitet (Buchstabe zugewiesen), sieht der direkt folgende
+            // RefreshDrives()-Aufruf ihn im selben Tick bereits als normalen, gemounteten Stick —
+            // die bestehende OnNewDriveInserted()-Kette darunter bleibt dadurch unverändert.
+            _vm.CheckRawUsbDisks();
             string prev = _lastDriveSignatureUi; _vm.RefreshDrives();
             string curr = string.Join(";", _vm.Drives.Select(d => d.Letter)); _lastDriveSignatureUi = curr;
             if (curr != prev && curr.Length > prev.Length) OnNewDriveInserted();
