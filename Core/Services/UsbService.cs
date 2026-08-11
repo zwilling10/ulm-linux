@@ -420,5 +420,27 @@ foreach ($v in $vols) {
             proc.WaitForExit(timeoutSeconds * 1_000);
             return proc.StandardOutput.ReadToEnd();
         }
+
+        // ── Rohe (buchstabenlose) USB-Datenträger: reine Logik-Helfer ──────
+        // systemDiskIndex ist bewusst nullable: konnte der Systemdatenträger-Index nicht ermittelt
+        // werden (z.B. WMI-Fehler), MUSS das als "unsicher" gelten (fail-closed) — sonst würde ein
+        // WMI-Ausfall versehentlich JEDEN Datenträger als sicher durchwinken (fail-open), bei einer
+        // destruktiven Aktion (diskpart clean) inakzeptabel.
+        internal static bool IsSafeToPrepare(int diskIndex, int? systemDiskIndex) =>
+            systemDiskIndex.HasValue && diskIndex != systemDiskIndex.Value;
+
+        internal static List<int> FindNewRawDiskIndices(IReadOnlyList<int> previousIndices, IReadOnlyList<int> currentIndices) =>
+            currentIndices.Except(previousIndices).ToList();
+
+        // A/B (historisch Diskette) und C (i.d.R. System) werden übersprungen — nicht aus
+        // Sicherheitsgründen (IsSafeToPrepare deckt das bereits ab), sondern weil ein frisch
+        // zugewiesener Buchstabe dort ohnehin von Windows selbst verweigert würde.
+        internal static char? FindFreeDriveLetter(IEnumerable<char> usedLetters)
+        {
+            var used = new HashSet<char>(usedLetters);
+            for (char c = 'D'; c <= 'Z'; c++)
+                if (!used.Contains(c)) return c;
+            return null;
+        }
     }
 }
