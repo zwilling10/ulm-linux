@@ -100,8 +100,17 @@ foreach ($v in $vols) {
         private static int? GetSystemDiskIndex()
         {
             if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return null;
+            // BUGFIX: Ursprünglich per -Filter "DeviceID='$($env:SystemDrive)'" — RunPowerShell()
+            // escaped ALLE doppelten Anführungszeichen im gesamten Skript blind (für die äußere
+            // cmd/PowerShell-Argumentweitergabe), was dieses eingebettete Filter-Anführungszeichen
+            // zerstörte und die Ausführung mit einem ParameterBindingException-Fehler abbrechen
+            // ließ (empirisch reproduziert). GetSystemDiskIndex() gab dadurch IMMER null zurück —
+            // ListRawUsbDisksWithoutLetter() bricht bei null bewusst fail-closed mit einer leeren
+            // Liste ab (siehe dort), wodurch die gesamte Erkennung nie anschlug, auch nicht beim
+            // Nutzer-Testlauf. Where-Object statt -Filter braucht keine eingebetteten
+            // Anführungszeichen und ist von diesem Escaping-Problem nicht betroffen.
             const string script = @"
-$sys = Get-CimInstance Win32_LogicalDisk -Filter ""DeviceID='$($env:SystemDrive)'""
+$sys = Get-CimInstance Win32_LogicalDisk | Where-Object { $_.DeviceID -eq $env:SystemDrive }
 if ($sys) {
   $sysPart = Get-CimAssociatedInstance -InputObject $sys -Association Win32_LogicalDiskToPartition -ErrorAction SilentlyContinue
   if ($sysPart) {
