@@ -496,6 +496,16 @@ namespace ULM.ViewModels
         /// selben Tick bereits mit Buchstabe und behandelt ihn über die bestehende,
         /// unveränderte OnNewDriveInserted()-Kette ganz normal wie jeden anderen neuen Stick.
         /// </summary>
+        // BUGFIX: Meldet neu gefundene rohe Datenträger jetzt nur noch — bereitet sie NICHT mehr
+        // automatisch vor. Vorher rief CheckRawUsbDisks() PrepareRawUsbDisk() (diskpart clean,
+        // löscht die komplette Partitionstabelle) sofort und ungefragt auf, BEVOR überhaupt eine
+        // Bestätigung erschien — anders als beim bestehenden Ablauf für normale, bereits
+        // formatierte Sticks, wo IMMER erst gefragt wird, bevor irgendetwas gelöscht wird. Der
+        // Aufrufer (Views/MainWindow.xaml.cs) zeigt jetzt zuerst denselben Bestätigungsdialog wie
+        // bei jedem anderen neuen Stick und ruft erst danach PrepareRawUsbDisk(candidate, letter)
+        // unten auf.
+        public event Action<RawUsbDiskCandidate>? RawUsbDiskDetected;
+
         public void CheckRawUsbDisks()
         {
             var candidates = _usb.ListRawUsbDisksWithoutLetter();
@@ -505,21 +515,26 @@ namespace ULM.ViewModels
 
             foreach (int idx in newIndices)
             {
+                var candidate = candidates.First(c => c.DiskIndex == idx);
                 Log(string.Format(LocalizationService.T(Str.Log_RawUsbDiskDetected), idx));
-
-                var usedLetters = System.IO.DriveInfo.GetDrives().Select(d => d.Name[0]);
-                char? letter = UsbService.FindFreeDriveLetter(usedLetters);
-                if (letter is null)
-                {
-                    Log(string.Format(LocalizationService.T(Str.Log_RawUsbDiskNoFreeLetter), idx));
-                    continue;
-                }
-
-                bool ok = _usb.PrepareRawUsbDisk(idx, letter.Value);
-                Log(ok
-                    ? string.Format(LocalizationService.T(Str.Log_RawUsbDiskPrepared), idx, letter.Value)
-                    : string.Format(LocalizationService.T(Str.Log_RawUsbDiskPrepareFailed), idx));
+                RawUsbDiskDetected?.Invoke(candidate);
             }
+        }
+
+        /// <summary>
+        /// Bereitet einen zuvor per RawUsbDiskDetected gemeldeten, vom Nutzer bereits bestätigten
+        /// Datenträger vor (Buchstabe zuweisen — löst dabei eine einmalige UAC-Abfrage für
+        /// diskpart aus, siehe UsbService.PrepareRawUsbDisk). Bei Erfolg holt der nächste
+        /// RefreshDrives()-Aufruf im selben Timer-Tick den Stick ganz normal über den neuen
+        /// Buchstaben ab.
+        /// </summary>
+        public bool PrepareRawUsbDisk(RawUsbDiskCandidate candidate, char letter)
+        {
+            bool ok = _usb.PrepareRawUsbDisk(candidate.DiskIndex, letter);
+            Log(ok
+                ? string.Format(LocalizationService.T(Str.Log_RawUsbDiskPrepared), candidate.DiskIndex, letter)
+                : string.Format(LocalizationService.T(Str.Log_RawUsbDiskPrepareFailed), candidate.DiskIndex));
+            return ok;
         }
 
         // BUGFIX: Ohne Re-Entrancy-Sperre konnte ein zweiter TriggerUsbScan-Aufruf (z.B. durch eine

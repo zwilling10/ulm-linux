@@ -180,6 +180,25 @@ foreach ($d in $disks) {
         /// Ausführung etwas an den Datenträger-Indizes geändert hat (z.B. durch ein zwischenzeitlich
         /// weiteres eingestecktes Laufwerk).
         /// </summary>
+        /// <summary>
+        /// BUGFIX: diskpart braucht für destruktive Datenträger-Operationen (clean/create
+        /// partition/format) immer erhöhte Rechte — genau wie z.B. Rufus selbst beim Start per UAC
+        /// danach fragt, bevor es überhaupt auf einen Datenträger zugreift. Die normale ULM-Instanz
+        /// läuft bewusst NICHT elevated (asInvoker, siehe UniversalLinuxManager.csproj-Kommentar).
+        /// UseShellExecute=true + Verb="runas" löst die UAC-Abfrage NUR für diesen einen
+        /// diskpart-Aufruf aus (kein Neustart der ganzen ULM-App nötig, anders als beim bestehenden
+        /// --ventoy-install-Mechanismus). Nachteil: UseShellExecute=true erlaubt kein
+        /// Ein-/Ausgabe-Umleiten (RedirectStandardOutput/CreateNoWindow) — nicht weiter schlimm, da
+        /// der Rückgabewert ohnehin nur über den ExitCode ausgewertet wird; ein diskpart-
+        /// Konsolenfenster blitzt dabei kurz sichtbar auf.
+        ///
+        /// Lehnt der Nutzer die UAC-Abfrage ab (Win32Exception 1223) oder ist Windows aus einem
+        /// anderen Grund am Starten von diskpart gehindert (z.B. 740 = fehlende Rechte, falls die
+        /// UAC-Infrastruktur selbst deaktiviert ist), MUSS das als gescheiterte Vorbereitung gelten
+        /// (false zurückgeben, loggen) statt die App abstürzen zu lassen — genau der Fehler, der im
+        /// ersten echten Testlauf aufgetreten ist (Process.Start warf eine unbehandelte
+        /// Win32Exception, die bis zum globalen DispatcherUnhandledException-Handler durchschlug).
+        /// </summary>
         public bool PrepareRawUsbDisk(int diskIndex, char letter)
         {
             if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return false;
@@ -195,11 +214,18 @@ foreach ($d in $disks) {
             try
             {
                 var psi = new System.Diagnostics.ProcessStartInfo("diskpart", $"/s \"{tempFile}\"")
-                { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
+                { UseShellExecute = true, Verb = "runas" };
                 using var proc = System.Diagnostics.Process.Start(psi);
                 if (proc is null) return false;
                 proc.WaitForExit(60_000);
                 return proc.ExitCode == 0;
+            }
+            catch (System.ComponentModel.Win32Exception)
+            {
+                // Nutzer hat die UAC-Abfrage abgelehnt, oder Windows konnte diskpart aus einem
+                // anderen Grund nicht erhöht starten — kein ULM-Fehler, einfach als gescheiterte
+                // Vorbereitung werten.
+                return false;
             }
             finally { try { File.Delete(tempFile); } catch { } }
         }

@@ -166,6 +166,8 @@ namespace ULM.Infrastructure
         Msg_NoLocalIsos,
         Msg_NewDriveDetected_Body,
         Msg_NewDriveDetected_Title,
+        Msg_RawUsbDiskDetected_Body,
+        Msg_RawUsbDiskDetected_Title,
         Msg_NoLabel,
         Msg_MultipleDrivesHeader,
         Msg_VentoyUpdate_Body,

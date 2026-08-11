@@ -219,6 +219,12 @@ namespace ULM.Infrastructure
                 "Neuer USB-Stick: {0}\nLabel: {1}   Größe: {2:F0} GB\n\n" +
                 "Automatisch als Ventoy-Stick einrichten?\n\n⚠ ALLE DATEN AUF DIESEM STICK WERDEN GELÖSCHT!",
             [Str.Msg_NewDriveDetected_Title]     = "USB-Stick erkannt — Datenverlust!",
+            [Str.Msg_RawUsbDiskDetected_Body]    =
+                "Ein nicht eingerichteter USB-Stick wurde erkannt (Größe ca. {0:F0} GB, kein " +
+                "lesbares Dateisystem — z.B. mit Rufus im ISO-Modus beschrieben).\n\n" +
+                "Jetzt vorbereiten, um ihn nutzbar zu machen? Windows fragt danach einmalig per " +
+                "Sicherheitsabfrage (UAC) nach.\n\n⚠ ALLE DATEN AUF DIESEM STICK WERDEN GELÖSCHT!",
+            [Str.Msg_RawUsbDiskDetected_Title]   = "Nicht eingerichteter USB-Stick erkannt",
             [Str.Msg_NoLabel]                    = "Kein Name",
             [Str.Msg_MultipleDrivesHeader]       = "Es sind {0} USB-Sticks angeschlossen. Mit welchem möchtest du arbeiten?",
             [Str.Msg_VentoyUpdate_Body]          = "Ventoy auf\n\n   {0}  {1}  ({2} GB)\n\naktualisieren?\n\n✅ Bestehende ISO-Dateien bleiben erhalten.",
@@ -1226,6 +1232,12 @@ namespace ULM.Infrastructure
                 "New USB stick: {0}\nLabel: {1}   Size: {2:F0} GB\n\n" +
                 "Set up automatically as a Ventoy stick?\n\n⚠ ALL DATA ON THIS STICK WILL BE ERASED!",
             [Str.Msg_NewDriveDetected_Title]     = "USB Stick Detected — Data Loss!",
+            [Str.Msg_RawUsbDiskDetected_Body]    =
+                "An unformatted USB stick was detected (size approx. {0:F0} GB, no readable " +
+                "file system — e.g. written with Rufus in ISO mode).\n\n" +
+                "Prepare it now to make it usable? Windows will then show a one-time security " +
+                "prompt (UAC).\n\n⚠ ALL DATA ON THIS STICK WILL BE ERASED!",
+            [Str.Msg_RawUsbDiskDetected_Title]   = "Unformatted USB Stick Detected",
             [Str.Msg_NoLabel]                    = "No Name",
             [Str.Msg_MultipleDrivesHeader]       = "{0} USB sticks are connected. Which one would you like to work with?",
             [Str.Msg_VentoyUpdate_Body]          = "Update Ventoy on\n\n   {0}  {1}  ({2} GB)?\n\n✅ Existing ISO files will be kept.",
