@@ -222,8 +222,11 @@ foreach ($d in $disks) {
             File.WriteAllText(tempFile, script, Encoding.ASCII);
             try
             {
+                // WindowStyle=Hidden funktioniert (anders als CreateNoWindow) auch zusammen mit
+                // UseShellExecute=true/Verb="runas" — unterdrückt das kurz aufblitzende
+                // diskpart-Konsolenfenster, ohne die UAC-Erhöhung zu beeinträchtigen.
                 var psi = new System.Diagnostics.ProcessStartInfo("diskpart", $"/s \"{tempFile}\"")
-                { UseShellExecute = true, Verb = "runas" };
+                { UseShellExecute = true, Verb = "runas", WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden };
                 using var proc = System.Diagnostics.Process.Start(psi);
                 if (proc is null) return false;
                 proc.WaitForExit(60_000);
