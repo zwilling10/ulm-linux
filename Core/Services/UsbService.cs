@@ -18,6 +18,8 @@ namespace ULM.Core.Services
     {
         List<UsbDrive> ListRemovableDrives();
         Task<(List<UsbService.StickIso> Found, List<UsbService.StickIso> Incomplete)> ScanStickVerifiedAsync(string letter, IReadOnlyList<IsoEntry> entries);
+        List<RawUsbDiskCandidate> ListRawUsbDisksWithoutLetter();
+        bool PrepareRawUsbDisk(int diskIndex, char letter);
     }
 
     public sealed class UsbService : IUsbService
@@ -89,6 +91,74 @@ foreach ($v in $vols) {
 
         public static string ListSignature(IEnumerable<UsbDrive> drives) =>
             string.Join(";", drives.Select(d => d.Letter.ToUpperInvariant()));
+
+        // ── Rohe (buchstabenlose) USB-Datenträger: Erkennung ───────────────
+        // Ermittelt den Win32_DiskDrive.Index des Datenträgers, der die Windows-Systempartition
+        // (%SystemDrive%, i.d.R. C:) enthält — Grundlage für die Systemdatenträger-Sperre in
+        // IsSafeToPrepare. Gibt null zurück, wenn die Ermittlung fehlschlägt (WMI-Fehler o.ä.) —
+        // Aufrufer MÜSSEN das als "unsicher" behandeln (siehe IsSafeToPrepare-Kommentar).
+        private static int? GetSystemDiskIndex()
+        {
+            if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return null;
+            const string script = @"
+$sys = Get-CimInstance Win32_LogicalDisk -Filter ""DeviceID='$($env:SystemDrive)'""
+if ($sys) {
+  $sysPart = Get-CimAssociatedInstance -InputObject $sys -Association Win32_LogicalDiskToPartition -ErrorAction SilentlyContinue
+  if ($sysPart) {
+    $sysDisk = Get-CimAssociatedInstance -InputObject $sysPart -Association Win32_DiskDriveToDiskPartition -ErrorAction SilentlyContinue
+    if ($sysDisk) { Write-Output $sysDisk.Index }
+  }
+}";
+            string output = RunPowerShell(script, 8).Trim();
+            return int.TryParse(output, out int idx) ? idx : null;
+        }
+
+        /// <summary>
+        /// Erkennt physische USB-Datenträger, denen Windows (noch) keinen Laufwerksbuchstaben
+        /// zugewiesen hat — z.B. mit Rufus im ISO/DD-Modus beschriebene Sticks, die in
+        /// ListRemovableDrives() (basiert auf Win32_LogicalDisk, listet nur Datenträger MIT
+        /// Buchstabe) nie auftauchen. Win32_DiskDrive arbeitet auf physischer Ebene, unabhängig
+        /// von Laufwerksbuchstaben — die WMI-Entsprechung dessen, was Rufus selbst über
+        /// SetupDiGetClassDevs/IOCTL_STORAGE_QUERY_PROPERTY auf niedrigerer Ebene macht.
+        /// Schlägt die Systemdatenträger-Ermittlung fehl, wird eine leere Liste zurückgegeben
+        /// (fail-closed) statt ungeprüft alle USB-Datenträger anzubieten.
+        /// </summary>
+        public List<RawUsbDiskCandidate> ListRawUsbDisksWithoutLetter()
+        {
+            var result = new List<RawUsbDiskCandidate>();
+            if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return result;
+
+            int? systemDiskIndex = GetSystemDiskIndex();
+            if (systemDiskIndex is null) return result;
+
+            const string script = @"
+$disks = Get-CimInstance Win32_DiskDrive | Where-Object { $_.InterfaceType -eq 'USB' }
+foreach ($d in $disks) {
+  $hasLetter = $false
+  $parts = Get-CimAssociatedInstance -InputObject $d -Association Win32_DiskDriveToDiskPartition -ErrorAction SilentlyContinue
+  foreach ($p in $parts) {
+    $lds = Get-CimAssociatedInstance -InputObject $p -Association Win32_LogicalDiskToPartition -ErrorAction SilentlyContinue
+    if ($lds) { $hasLetter = $true }
+  }
+  if (-not $hasLetter) {
+    Write-Output ($d.Index.ToString() + '|' + [int64]$d.Size)
+  }
+}";
+            string output = RunPowerShell(script, 10);
+            foreach (string line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                string[] parts = line.Split('|');
+                if (parts.Length < 2) continue;
+                if (!int.TryParse(parts[0], out int idx)) continue;
+                if (!long.TryParse(parts[1], out long size)) continue;
+                if (size < 2_000_000_000) continue;
+                if (!IsSafeToPrepare(idx, systemDiskIndex)) continue;
+                result.Add(new RawUsbDiskCandidate(idx, size));
+            }
+            return result;
+        }
+
+        public bool PrepareRawUsbDisk(int diskIndex, char letter) => throw new NotImplementedException("siehe Task 3");
 
         public static string DriveRoot(string letter)
         {
