@@ -206,9 +206,18 @@ foreach ($d in $disks) {
             int? systemDiskIndex = GetSystemDiskIndex();
             if (!IsSafeToPrepare(diskIndex, systemDiskIndex)) return false;
 
+            // BUGFIX: fs=fat32 schlug bei einem echten 114-GB-Teststick fehl — Windows' format-
+            // Tools (auch über diskpart) verweigern FAT32 grundsätzlich ab 32 GB (feste
+            // Microsoft-Beschränkung, unabhängig von der eigentlichen FAT32-Spezifikation). Die
+            // Partition wurde dabei bereits erstellt und bekam automatisch einen Buchstaben
+            // zugewiesen, bevor der format-Schritt scheiterte und das Skript abbrach — diskpart
+            // meldete dadurch trotzdem einen Fehler (Exit-Code ≠ 0). ntfs quick hat keine
+            // Größenbegrenzung und ist genauso schnell; die Wahl des Dateisystems ist hier ohnehin
+            // nur ein Übergangszustand, Ventoy2Disk formatiert bei der eigentlichen Einrichtung
+            // alles komplett neu.
             string script =
                 $"select disk {diskIndex}\nclean\ncreate partition primary\n" +
-                $"format fs=fat32 quick label=ULMPREP\nassign letter={letter}\nexit\n";
+                $"format fs=ntfs quick label=ULMPREP\nassign letter={letter}\nexit\n";
             string tempFile = Path.Combine(Path.GetTempPath(), "ulm_diskpart_raw.txt");
             File.WriteAllText(tempFile, script, Encoding.ASCII);
             try
