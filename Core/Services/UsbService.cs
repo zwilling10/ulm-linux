@@ -158,7 +158,42 @@ foreach ($d in $disks) {
             return result;
         }
 
-        public bool PrepareRawUsbDisk(int diskIndex, char letter) => throw new NotImplementedException("siehe Task 3");
+        /// <summary>
+        /// Bereitet einen rohen (buchstabenlosen) USB-Datenträger für die normale Erkennung vor:
+        /// komplett neu partitionieren und formatieren, damit Windows ihm einen Laufwerksbuchstaben
+        /// zuweist. fs=fat32 (nicht exfat) ist bewusst gewählt — dieser Schritt dient NUR dazu,
+        /// Windows zur Buchstaben-Zuweisung zu bewegen; Ventoy2Disk formatiert den Stick bei der
+        /// eigentlichen Einrichtung ohnehin komplett neu (siehe VentoyInstallWorker).
+        ///
+        /// SICHERHEIT: Zweite, unabhängige Systemdatenträger-Prüfung unmittelbar vor dem
+        /// destruktiven diskpart-Aufruf — zusätzlich zur bereits in ListRawUsbDisksWithoutLetter()
+        /// erfolgten Prüfung. Verhindert, dass sich zwischen Anzeige/Erkennung und tatsächlicher
+        /// Ausführung etwas an den Datenträger-Indizes geändert hat (z.B. durch ein zwischenzeitlich
+        /// weiteres eingestecktes Laufwerk).
+        /// </summary>
+        public bool PrepareRawUsbDisk(int diskIndex, char letter)
+        {
+            if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return false;
+
+            int? systemDiskIndex = GetSystemDiskIndex();
+            if (!IsSafeToPrepare(diskIndex, systemDiskIndex)) return false;
+
+            string script =
+                $"select disk {diskIndex}\nclean\ncreate partition primary\n" +
+                $"format fs=fat32 quick label=ULMPREP\nassign letter={letter}\nexit\n";
+            string tempFile = Path.Combine(Path.GetTempPath(), "ulm_diskpart_raw.txt");
+            File.WriteAllText(tempFile, script, Encoding.ASCII);
+            try
+            {
+                var psi = new System.Diagnostics.ProcessStartInfo("diskpart", $"/s \"{tempFile}\"")
+                { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
+                using var proc = System.Diagnostics.Process.Start(psi);
+                if (proc is null) return false;
+                proc.WaitForExit(60_000);
+                return proc.ExitCode == 0;
+            }
+            finally { try { File.Delete(tempFile); } catch { } }
+        }
 
         public static string DriveRoot(string letter)
         {
