@@ -31,6 +31,7 @@ namespace ULM.ViewModels
         private CancellationTokenSource _workerCts = new();
         private object?  _activeWorker;
         private string   _lastDriveSignature = string.Empty;
+        private List<int> _lastRawDiskIndices = new();
         // Startphase: unterdrückt den SOFORTIGEN Stick-Scan beim Programmstart (der sonst über den
         // SelectedDrive-Setter → TriggerUsbScan noch VOR dem Online-Versionscheck liefe). Gewünschte
         // Reihenfolge: erst der Online-Versionscheck, danach der Stick-Scan — Letzteren stößt der
@@ -484,6 +485,41 @@ namespace ULM.ViewModels
             SelectedDrive = Drives.FirstOrDefault(d => d.Letter == pl) ?? (Drives.Count > 0 ? Drives[0] : null);
             OnPropertyChanged(nameof(DriveInfoText));
             if (Drives.Count > 0) Log(string.Format(LocalizationService.T(Str.Log_DrivesDetected), string.Join(", ", Drives.Select(d => $"{d.Letter} ({d.Label})"))));
+        }
+
+        /// <summary>
+        /// Erkennt physische USB-Datenträger ohne Laufwerksbuchstaben (siehe
+        /// IUsbService.ListRawUsbDisksWithoutLetter) und bereitet neu aufgetauchte Kandidaten
+        /// automatisch vor (Buchstabe zuweisen). Läuft im selben Timer-Tick wie RefreshDrives(),
+        /// bewusst VOR ihr aufgerufen (siehe Views/MainWindow.xaml.cs CheckDriveChanges) — dadurch
+        /// sieht der direkt darauffolgende RefreshDrives()-Aufruf den frisch vorbereiteten Stick im
+        /// selben Tick bereits mit Buchstabe und behandelt ihn über die bestehende,
+        /// unveränderte OnNewDriveInserted()-Kette ganz normal wie jeden anderen neuen Stick.
+        /// </summary>
+        public void CheckRawUsbDisks()
+        {
+            var candidates = _usb.ListRawUsbDisksWithoutLetter();
+            var currentIndices = candidates.Select(c => c.DiskIndex).ToList();
+            var newIndices = UsbService.FindNewRawDiskIndices(_lastRawDiskIndices, currentIndices);
+            _lastRawDiskIndices = currentIndices;
+
+            foreach (int idx in newIndices)
+            {
+                Log(string.Format(LocalizationService.T(Str.Log_RawUsbDiskDetected), idx));
+
+                var usedLetters = System.IO.DriveInfo.GetDrives().Select(d => d.Name[0]);
+                char? letter = UsbService.FindFreeDriveLetter(usedLetters);
+                if (letter is null)
+                {
+                    Log(string.Format(LocalizationService.T(Str.Log_RawUsbDiskNoFreeLetter), idx));
+                    continue;
+                }
+
+                bool ok = _usb.PrepareRawUsbDisk(idx, letter.Value);
+                Log(ok
+                    ? string.Format(LocalizationService.T(Str.Log_RawUsbDiskPrepared), idx, letter.Value)
+                    : string.Format(LocalizationService.T(Str.Log_RawUsbDiskPrepareFailed), idx));
+            }
         }
 
         // BUGFIX: Ohne Re-Entrancy-Sperre konnte ein zweiter TriggerUsbScan-Aufruf (z.B. durch eine

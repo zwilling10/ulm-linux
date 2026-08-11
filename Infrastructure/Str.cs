@@ -413,6 +413,10 @@ namespace ULM.Infrastructure
         Log_GitHubTokenRemoved, Log_GitHubTokenSaved, Log_CancellingOperation, Log_DeleteFailed,
         Log_OperationSucceededLogPrefix,
 
+        // ── Log-Meldungen: Rohe (buchstabenlose) USB-Datenträger ──────────
+        Log_RawUsbDiskDetected, Log_RawUsbDiskPrepared, Log_RawUsbDiskPrepareFailed,
+        Log_RawUsbDiskNoFreeLetter,
+
         // ── Log-Meldungen: Download-Worker (Core/Workers/Workers.cs) ──
         Log_NoDownloadUrlFound, Log_Unreachable, Log_MirrorTest, Log_TryingUrl,
         Log_AndTryNextSource, Log_PermanentlySlow, Log_UserRequestsFasterMirror, Log_MirrorFailed,
