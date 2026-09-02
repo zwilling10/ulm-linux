@@ -63,6 +63,7 @@
     <Compile Include="..\Core\Models\IsoEntry.cs" Link="Core\Models\IsoEntry.cs" />
     <Compile Include="..\Core\Models\Constants.cs" Link="Core\Models\Constants.cs" />
     <Compile Include="..\Core\Models\UsbDrive.cs" Link="Core\Models\UsbDrive.cs" />
+    <Compile Include="..\Core\Models\RawUsbDiskCandidate.cs" Link="Core\Models\RawUsbDiskCandidate.cs" />
     <Compile Include="..\Core\Services\HttpService.cs" Link="Core\Services\HttpService.cs" />
     <Compile Include="..\Core\Services\HttpService.DistroResolvers.cs" Link="Core\Services\HttpService.DistroResolvers.cs" />
     <Compile Include="..\Core\Services\IsoDatabaseService.cs" Link="Core\Services\IsoDatabaseService.cs" />
