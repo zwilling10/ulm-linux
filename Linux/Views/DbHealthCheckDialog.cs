@@ -87,7 +87,7 @@ namespace ULM.Linux.Views
 
             var close = new Button
             {
-                Content = LocalizationService.T(Str.Db_Btn_Close), Width = 130, Classes = { "primary" },
+                Content = LocalizationService.T(Str.Db_Btn_Close), MinWidth = 130, Classes = { "primary" },
                 HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 14, 0, 0),
             };
             close.Click += (_, _) => Close();

@@ -49,9 +49,9 @@ namespace ULM.Linux.Views
             root.Children.Add(_errorTb);
 
             var btns = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 8, 0, 0) };
-            var ok = new Button { Content = LocalizationService.T(Str.Db_Btn_Save), Classes = { "primary" }, Width = 110 };
+            var ok = new Button { Content = LocalizationService.T(Str.Db_Btn_Save), Classes = { "primary" }, MinWidth = 110 };
             ok.Click += (_, _) => TrySave();
-            var cancel = new Button { Content = LocalizationService.T(Str.Db_Btn_Cancel), Classes = { "ghost" }, Width = 100, Margin = new Thickness(8, 0, 0, 0) };
+            var cancel = new Button { Content = LocalizationService.T(Str.Db_Btn_Cancel), Classes = { "ghost" }, MinWidth = 100, Margin = new Thickness(8, 0, 0, 0) };
             cancel.Click += (_, _) => Close(false);
             btns.Children.Add(ok);
             btns.Children.Add(cancel);

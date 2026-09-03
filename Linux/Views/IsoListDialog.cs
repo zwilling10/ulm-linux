@@ -47,7 +47,7 @@ namespace ULM.Linux.Views
             AddBtn(btns, LocalizationService.T(Str.Db_Btn_MoveUp), (_, _) => OnUp(), "ghost");
             AddBtn(btns, LocalizationService.T(Str.Db_Btn_MoveDown), (_, _) => OnDown(), "ghost");
 
-            var close = new Button { Content = LocalizationService.T(Str.Db_Btn_Close), Classes = { "primary" }, Margin = new Thickness(20, 0, 0, 0), Width = 100, HorizontalAlignment = HorizontalAlignment.Right };
+            var close = new Button { Content = LocalizationService.T(Str.Db_Btn_Close), Classes = { "primary" }, Margin = new Thickness(20, 0, 0, 0), MinWidth = 100, HorizontalAlignment = HorizontalAlignment.Right };
             close.Click += (_, _) => { _db.Save(); Close(true); };
             btns.Children.Add(close);
             Grid.SetRow(btns, 1);
@@ -99,7 +99,7 @@ namespace ULM.Linux.Views
 
         private static void AddBtn(Panel p, string label, EventHandler<Avalonia.Interactivity.RoutedEventArgs> handler, string cssClass)
         {
-            var btn = new Button { Content = label, Classes = { cssClass }, Margin = new Thickness(0, 0, 6, 0), Width = 110 };
+            var btn = new Button { Content = label, Classes = { cssClass }, Margin = new Thickness(0, 0, 6, 0), MinWidth = 110 };
             btn.Click += handler;
             p.Children.Add(btn);
         }

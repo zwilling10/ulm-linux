@@ -26,9 +26,9 @@ namespace ULM.Linux.Views
             root.Children.Add(new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 16) });
 
             var btns = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
-            var yes = new Button { Content = LocalizationService.T(Str.Row_Yes), Classes = { "danger" }, Width = 90 };
+            var yes = new Button { Content = LocalizationService.T(Str.Row_Yes), Classes = { "danger" }, MinWidth = 90 };
             yes.Click += (_, _) => Close(true);
-            var no = new Button { Content = LocalizationService.T(Str.Row_No), Classes = { "ghost" }, Width = 90, Margin = new Thickness(8, 0, 0, 0) };
+            var no = new Button { Content = LocalizationService.T(Str.Row_No), Classes = { "ghost" }, MinWidth = 90, Margin = new Thickness(8, 0, 0, 0) };
             no.Click += (_, _) => Close(false);
             btns.Children.Add(yes);
             btns.Children.Add(no);
