@@ -1,0 +1,225 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!--
+        Avalonia-Pendant zu Themes/DarkTheme.xaml (WPF). Gleiche Farb-Keys/Hex-Werte wie dort
+        (Konsistenz + bereits WCAG-AA-geprüfte Kontraste), aber eigene Avalonia-Syntax:
+        ResourceDictionary statt WPF-ControlTemplate/Style.Triggers, Selector-Klassen
+        (":pointerover"/":pressed"/Button.primary usw.) statt Trigger-Elemente.
+    -->
+    <Styles.Resources>
+        <Color x:Key="ColBg">#0B1622</Color>
+        <Color x:Key="ColWhite">#132A44</Color>
+        <Color x:Key="ColHeader">#EAF1F8</Color>
+        <Color x:Key="ColHeaderBar">#0F2540</Color>
+        <Color x:Key="ColBlue">#3AAEEF</Color>
+        <Color x:Key="ColMid">#B8C9DC</Color>
+        <Color x:Key="ColDim">#8BA3BE</Color>
+        <Color x:Key="ColBorder">#336B9E</Color>
+        <Color x:Key="ColCard">#132A44</Color>
+        <Color x:Key="ColGreen">#2ECC71</Color>
+        <Color x:Key="ColAmber">#F39C12</Color>
+        <Color x:Key="ColRed">#E74C3C</Color>
+        <Color x:Key="ColTeal">#1ABC9C</Color>
+
+        <SolidColorBrush x:Key="BrushBg" Color="{StaticResource ColBg}"/>
+        <SolidColorBrush x:Key="BrushWhite" Color="{StaticResource ColWhite}"/>
+        <SolidColorBrush x:Key="BrushHeader" Color="{StaticResource ColHeader}"/>
+        <SolidColorBrush x:Key="BrushHeaderBar" Color="{StaticResource ColHeaderBar}"/>
+        <SolidColorBrush x:Key="BrushBlue" Color="{StaticResource ColBlue}"/>
+        <SolidColorBrush x:Key="BrushMid" Color="{StaticResource ColMid}"/>
+        <SolidColorBrush x:Key="BrushDim" Color="{StaticResource ColDim}"/>
+        <SolidColorBrush x:Key="BrushBorder" Color="{StaticResource ColBorder}"/>
+        <SolidColorBrush x:Key="BrushCard" Color="{StaticResource ColCard}"/>
+        <SolidColorBrush x:Key="BrushGreen" Color="{StaticResource ColGreen}"/>
+        <SolidColorBrush x:Key="BrushAmber" Color="{StaticResource ColAmber}"/>
+        <SolidColorBrush x:Key="BrushRed" Color="{StaticResource ColRed}"/>
+        <SolidColorBrush x:Key="BrushTeal" Color="{StaticResource ColTeal}"/>
+
+        <!-- "Noto Color Emoji" explizit statt nur über den generischen "sans-serif"-Alias zu
+             hoffen: Avalonia/Skia lösen Emoji-Glyph-Fallback über eine EXPLIZIT genannte
+             Schriftliste zuverlässiger auf. Nutzerfund: 🔒 (Sicherheit-Kategorie) rendert fein,
+             🎮 (Gaming-Kategorie) zeigte ein falsches Icon — beide Emojis kommen aus der von
+             Windows mitgenutzten Str.Category_*-Konstante, das ist also ein reines
+             Linux-Rendering-Thema, kein Datenfehler. -->
+        <FontFamily x:Key="FontMain">Segoe UI,Tahoma,Arial,Noto Color Emoji,sans-serif</FontFamily>
+    </Styles.Resources>
+
+    <!-- ═══ Fenster-Grundfarben ═══════════════════════════════════════ -->
+    <Style Selector="Window">
+        <Setter Property="Background" Value="{DynamicResource BrushBg}"/>
+        <Setter Property="FontFamily" Value="{DynamicResource FontMain}"/>
+    </Style>
+
+    <!-- ═══ Button-Basis ═══════════════════════════════════════════════
+         CornerRadius 5, Höhe 32, Padding 14x7, SemiBold 11.5 — wie WPF BtnBase.
+         Varianten als CSS-artige Klassen: Button.primary/success/warning/danger/ghost/secondary. -->
+    <Style Selector="Button">
+        <Setter Property="FontFamily" Value="{DynamicResource FontMain}"/>
+        <Setter Property="FontSize" Value="11.5"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="Padding" Value="14,7"/>
+        <Setter Property="Height" Value="32"/>
+        <Setter Property="CornerRadius" Value="5"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Background" Value="{DynamicResource BrushCard}"/>
+        <Setter Property="Foreground" Value="{DynamicResource BrushMid}"/>
+    </Style>
+    <Style Selector="Button:pointerover /template/ ContentPresenter">
+        <Setter Property="Opacity" Value="0.85"/>
+    </Style>
+    <Style Selector="Button:pressed /template/ ContentPresenter">
+        <Setter Property="Opacity" Value="0.7"/>
+    </Style>
+    <!-- Erster Versuch (0.4 wie WPF BtnBase, dann 0.7) blieb laut Nutzerfund immer noch schlecht
+         lesbar — Textopazität ist für den ohnehin schon gedimmten BrushMid-Ton (#B8C9DC) generell
+         der falsche Hebel. Farbige Buttons (primary/success/warning/danger, weißer Text auf
+         kräftigem Hintergrund) dürfen weiter abdunkeln, das bleibt lesbar. -->
+    <Style Selector="Button:disabled /template/ ContentPresenter">
+        <Setter Property="Opacity" Value="0.7"/>
+    </Style>
+    <!-- Ghost-Buttons (v.a. die in Phase A bewusst deaktivierten "noch nicht verfügbar"-Buttons in
+         der Aktionsleiste, mit ihrem ohnehin schon gedimmten BrushMid-Text) behalten volle
+         Textdeckkraft — nur der Rahmen wird gedimmt, das reicht als "inaktiv"-Hinweis, ohne den
+         Text unlesbar zu machen. Spezifischerer Selector (Button.ghost:disabled) gewinnt gegen die
+         generische Regel oben. -->
+    <Style Selector="Button.ghost:disabled /template/ ContentPresenter">
+        <Setter Property="Opacity" Value="1"/>
+    </Style>
+    <Style Selector="Button.ghost:disabled">
+        <Setter Property="BorderBrush" Value="{DynamicResource BrushCard}"/>
+        <!-- Explizit statt nur von FluentTheme geerbt — auch mit Mode="Dark" in App.axaml als
+             zweite Absicherung, falls Fluents eigene :disabled-Textfarbe irgendwo doch noch
+             durchschlägt. -->
+        <Setter Property="Foreground" Value="{DynamicResource BrushMid}"/>
+    </Style>
+
+    <Style Selector="Button.primary">
+        <Setter Property="Background" Value="{DynamicResource BrushBlue}"/>
+        <Setter Property="Foreground" Value="White"/>
+    </Style>
+    <Style Selector="Button.success">
+        <Setter Property="Background" Value="{DynamicResource BrushGreen}"/>
+        <Setter Property="Foreground" Value="White"/>
+    </Style>
+    <Style Selector="Button.warning">
+        <Setter Property="Background" Value="{DynamicResource BrushAmber}"/>
+        <Setter Property="Foreground" Value="White"/>
+    </Style>
+    <Style Selector="Button.danger">
+        <Setter Property="Background" Value="{DynamicResource BrushRed}"/>
+        <Setter Property="Foreground" Value="White"/>
+    </Style>
+    <Style Selector="Button.ghost">
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource BrushBorder}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="Foreground" Value="{DynamicResource BrushMid}"/>
+    </Style>
+    <Style Selector="Button.ghost-onbar">
+        <!-- Ghost-Variante für die dunkle Kopfzeile (weiße statt gedimmte Schrift, hellerer Rahmen) —
+             entspricht Windows' Einstellungen-/Hilfe-Buttons mit Foreground="White" BorderBrush="#4A6785". -->
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="BorderBrush" Value="#4A6785"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="Foreground" Value="White"/>
+    </Style>
+    <Style Selector="Button.secondary">
+        <Setter Property="Background" Value="{DynamicResource BrushCard}"/>
+        <Setter Property="Foreground" Value="{DynamicResource BrushMid}"/>
+    </Style>
+
+    <!-- ═══ TextBox ════════════════════════════════════════════════════ -->
+    <Style Selector="TextBox">
+        <Setter Property="FontFamily" Value="{DynamicResource FontMain}"/>
+        <Setter Property="FontSize" Value="12"/>
+        <Setter Property="Padding" Value="8,5"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource BrushBorder}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="Background" Value="{DynamicResource BrushWhite}"/>
+        <Setter Property="Foreground" Value="{DynamicResource BrushHeader}"/>
+        <Setter Property="CaretBrush" Value="{DynamicResource BrushHeader}"/>
+        <Setter Property="CornerRadius" Value="5"/>
+    </Style>
+
+    <!-- ═══ ComboBox ═══════════════════════════════════════════════════ -->
+    <Style Selector="ComboBox">
+        <Setter Property="FontFamily" Value="{DynamicResource FontMain}"/>
+        <Setter Property="FontSize" Value="12"/>
+        <Setter Property="Padding" Value="8,4"/>
+        <Setter Property="Height" Value="32"/>
+        <Setter Property="Background" Value="{DynamicResource BrushWhite}"/>
+        <Setter Property="Foreground" Value="{DynamicResource BrushHeader}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource BrushBorder}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="CornerRadius" Value="5"/>
+    </Style>
+    <Style Selector="ComboBoxItem">
+        <Setter Property="Padding" Value="8,6"/>
+        <Setter Property="Foreground" Value="{DynamicResource BrushHeader}"/>
+        <Setter Property="Background" Value="{DynamicResource BrushWhite}"/>
+    </Style>
+    <Style Selector="ComboBoxItem:pointerover /template/ ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource BrushCard}"/>
+    </Style>
+
+    <!-- ═══ CheckBox ═══════════════════════════════════════════════════ -->
+    <Style Selector="CheckBox">
+        <Setter Property="FontFamily" Value="{DynamicResource FontMain}"/>
+        <Setter Property="FontSize" Value="12"/>
+        <Setter Property="Foreground" Value="{DynamicResource BrushHeader}"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
+    </Style>
+
+    <!-- ═══ TabControl / TabItem (flach, 2px blaue Unterstreichung bei Auswahl) ═══════════ -->
+    <Style Selector="TabControl">
+        <Setter Property="Background" Value="{DynamicResource BrushWhite}"/>
+    </Style>
+    <Style Selector="TabItem">
+        <Setter Property="FontFamily" Value="{DynamicResource FontMain}"/>
+        <Setter Property="FontSize" Value="12"/>
+        <Setter Property="Padding" Value="18,9"/>
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Foreground" Value="{DynamicResource BrushMid}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource BrushBlue}"/>
+        <Setter Property="BorderThickness" Value="0,0,0,0"/>
+    </Style>
+    <Style Selector="TabItem:selected">
+        <Setter Property="BorderThickness" Value="0,0,0,2"/>
+        <Setter Property="Foreground" Value="{DynamicResource BrushHeader}"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+    </Style>
+    <Style Selector="TabItem:pointerover">
+        <Setter Property="Foreground" Value="{DynamicResource BrushHeader}"/>
+    </Style>
+
+    <!-- ═══ ListBox ════════════════════════════════════════════════════ -->
+    <Style Selector="ListBoxItem">
+        <Setter Property="Padding" Value="6,3"/>
+        <Setter Property="FontFamily" Value="{DynamicResource FontMain}"/>
+        <Setter Property="FontSize" Value="11.5"/>
+        <Setter Property="Foreground" Value="{DynamicResource BrushHeader}"/>
+    </Style>
+
+    <!-- ═══ ProgressBar ════════════════════════════════════════════════ -->
+    <Style Selector="ProgressBar">
+        <Setter Property="Height" Value="6"/>
+        <Setter Property="Background" Value="{DynamicResource BrushCard}"/>
+        <Setter Property="Foreground" Value="{DynamicResource BrushBlue}"/>
+        <Setter Property="BorderThickness" Value="0"/>
+    </Style>
+
+    <!-- ═══ ToolTip ════════════════════════════════════════════════════ -->
+    <Style Selector="ToolTip">
+        <Setter Property="MaxWidth" Value="340"/>
+        <Setter Property="Background" Value="{DynamicResource BrushCard}"/>
+        <Setter Property="Foreground" Value="{DynamicResource BrushHeader}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource BrushBorder}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+    </Style>
+
+    <!-- ═══ ScrollBar (schlank) ════════════════════════════════════════ -->
+    <Style Selector="ScrollBar">
+        <Setter Property="MaxWidth" Value="8"/>
+    </Style>
+</Styles>

@@ -1,71 +1,277 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:ULM.Linux.ViewModels"
+        xmlns:linux="using:ULM.Linux"
         x:Class="ULM.Linux.Views.MainWindow"
         x:DataType="vm:LinuxMainViewModel"
         Title="Universal Linux Manager"
-        Width="900" Height="640">
-    <DockPanel Margin="8">
-        <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,8">
-            <TextBox Grid.Column="0" Watermark="{Binding SearchPlaceholder}" Text="{Binding SearchText}" Margin="0,0,8,0" />
-            <Button Grid.Column="1" Content="{Binding RefreshLabel}" Command="{Binding RefreshCommand}" Margin="0,0,8,0" />
-            <Button Grid.Column="2" Content="{Binding LanguageButtonLabel}" Command="{Binding ToggleLanguageCommand}" />
-        </Grid>
+        Width="1160" Height="750" MinWidth="900" MinHeight="580"
+        WindowStartupLocation="CenterScreen">
 
-        <StackPanel DockPanel.Dock="Bottom" Margin="0,8,0,0" Spacing="6">
-            <ProgressBar Minimum="0" Maximum="100" Value="{Binding DownloadPercent}" Height="6" IsVisible="{Binding IsBusy}" />
-            <TextBlock Text="{Binding DownloadStatus}" />
-            <TextBlock Text="{Binding CopyStatus}" />
-            <TextBlock Text="{Binding VentoyStatus}" TextWrapping="Wrap" MaxHeight="120" />
+    <!--
+        Struktur an Windows' Views/MainWindow.xaml angeglichen (Phase A, siehe
+        docs/superpowers/... Plan "ULM Linux: MainWindow-Optik + -Verhalten an Windows angleichen"):
+        Kopfzeile / Such-&-Sprachzeile (Linux-eigen, siehe Kommentar unten) / Laufwerks-Toolbar /
+        Tabs (ISO-Auswahl mit gruppierter Spalten-Liste, Protokoll, Status) / Aktionsleiste /
+        Statusleiste. Farben/Stile kommen aus Themes/DarkTheme.axaml (App.axaml).
+    -->
+    <Grid RowDefinitions="64,Auto,Auto,*,Auto,28">
 
-            <Border IsVisible="{Binding PendingConfirmationMessage, Converter={x:Static ObjectConverters.IsNotNull}}"
-                    Background="#FFF3CD" BorderBrush="#FFCA2C" BorderThickness="1" Padding="10" CornerRadius="4">
-                <StackPanel Spacing="8">
-                    <TextBlock Text="{Binding PendingConfirmationMessage}" TextWrapping="Wrap" Foreground="#664D03" FontWeight="Bold" />
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <Button Content="Ja, fortfahren" Command="{Binding ConfirmVentoyCommand}" Background="#DC3545" Foreground="White" />
-                        <Button Content="Abbrechen" Command="{Binding CancelVentoyCommand}" />
+        <!-- ── Kopfzeile ──────────────────────────────────────────────── -->
+        <Border Grid.Row="0" Background="{DynamicResource BrushHeaderBar}">
+            <Grid ColumnDefinitions="Auto,*,Auto" Margin="18,0">
+                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Border Width="40" Height="40" CornerRadius="8"
+                            Background="{DynamicResource BrushBlue}" Margin="0,0,12,0">
+                        <TextBlock Text="UL" Foreground="White" FontWeight="Bold" FontSize="14"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock Text="Universal Linux Manager" Foreground="White"
+                                   FontSize="16" FontWeight="Bold"/>
+                        <TextBlock Text="{Binding HeaderSubtitle}" Foreground="{DynamicResource BrushDim}"
+                                   FontSize="10"/>
                     </StackPanel>
                 </StackPanel>
-            </Border>
 
-            <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto">
-                <ComboBox Grid.Column="0" ItemsSource="{Binding Drives}" SelectedItem="{Binding SelectedDrive}">
+                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                    <!-- Einstellungen/Hilfe: sichtbar wie unter Windows, aber deaktiviert — die
+                         dahinterliegenden Dialoge existieren auf Linux noch nicht (Phase B, siehe Plan). -->
+                    <Button Classes="ghost-onbar" Content="{Binding SettingsLabel}" Width="140"
+                            Margin="0,0,8,0" IsEnabled="False" ToolTip.Tip="{Binding NotAvailableTooltip}"/>
+                    <Button Classes="ghost-onbar" Content="{Binding HelpLabel}" Width="80"
+                            IsEnabled="False" ToolTip.Tip="{Binding NotAvailableTooltip}"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- ── Such-/Sprachzeile ──────────────────────────────────────── -->
+        <!-- Kein Windows-Pendant (dort per Einstellungen-Dialog geregelt bzw. keine Suche
+             vorhanden) — bleibt bewusst als eigene, kompakte Zeile erhalten statt ersatzlos entfernt
+             zu werden: Katalog-Refresh und Sprachumschalter sind bestehende, funktionierende
+             Linux-Features ohne Windows-Äquivalent an dieser Stelle. -->
+        <Border Grid.Row="1" Background="{DynamicResource BrushWhite}"
+                BorderBrush="{DynamicResource BrushBorder}" BorderThickness="0,0,0,1">
+            <Grid ColumnDefinitions="*,Auto,Auto" Margin="18,8">
+                <TextBox Grid.Column="0" Watermark="{Binding SearchPlaceholder}" Text="{Binding SearchText}"
+                          Margin="0,0,8,0"/>
+                <Button Grid.Column="1" Classes="ghost" Content="{Binding RefreshLabel}"
+                        Command="{Binding RefreshCommand}" Margin="0,0,8,0"/>
+                <Button Grid.Column="2" Classes="ghost" Content="{Binding LanguageButtonLabel}"
+                        Command="{Binding ToggleLanguageCommand}" Width="48"/>
+            </Grid>
+        </Border>
+
+        <!-- ── Toolbar: Laufwerk / Ventoy ─────────────────────────────── -->
+        <Border Grid.Row="2" Background="{DynamicResource BrushWhite}"
+                BorderBrush="{DynamicResource BrushBorder}" BorderThickness="0,0,0,1">
+            <Grid ColumnDefinitions="Auto,280,36,Auto,Auto,*,Auto" Margin="18,10">
+                <TextBlock Grid.Column="0" Text="{Binding TargetDriveLabel}" FontSize="9" FontWeight="Bold"
+                           Foreground="{DynamicResource BrushDim}" VerticalAlignment="Center" Margin="0,0,10,0"/>
+
+                <ComboBox Grid.Column="1" ItemsSource="{Binding Drives}" SelectedItem="{Binding SelectedDrive}">
                     <ComboBox.ItemTemplate>
-                        <DataTemplate>
-                            <TextBlock Text="{Binding DeviceNode}" />
+                        <DataTemplate x:DataType="linux:LinuxBlockDevice">
+                            <TextBlock Text="{Binding DeviceNode}"/>
                         </DataTemplate>
                     </ComboBox.ItemTemplate>
                 </ComboBox>
-                <CheckBox Grid.Column="1" Content="Secure Boot" IsChecked="{Binding SecureBootEnabled}" Margin="8,0" />
-                <Button Grid.Column="2" Content="Auf Stick kopieren" Command="{Binding CopyToStickCommand}" Margin="0,0,8,0" />
-                <Button Grid.Column="3" Content="Ventoy einrichten" Command="{Binding RequestVentoyInstallCommand}" Margin="0,0,8,0" />
-                <Button Grid.Column="4" Content="Ventoy aktualisieren" Command="{Binding RequestVentoyUpdateCommand}" />
+
+                <Button Grid.Column="2" Classes="ghost" Content="↻" FontSize="16" Width="32" Height="32" Padding="0"
+                        Command="{Binding RefreshCommand}"/>
+
+                <StackPanel Grid.Column="3" Orientation="Horizontal" Margin="10,0,0,0">
+                    <Button Classes="success" Content="{Binding VentoyInstallLabel}"
+                            Command="{Binding RequestVentoyInstallCommand}" Margin="0,0,8,0"/>
+                    <Button Classes="success" Content="{Binding VentoyUpdateLabel}"
+                            Command="{Binding RequestVentoyUpdateCommand}"/>
+                </StackPanel>
+
+                <CheckBox Grid.Column="4" Content="{Binding SecureBootLabel}" IsChecked="{Binding SecureBootEnabled}"
+                          Margin="14,0,0,0" VerticalAlignment="Center"/>
+
+                <TextBlock Grid.Column="6" Text="{Binding DriveInfoText}" Foreground="{DynamicResource BrushBlue}"
+                           FontWeight="SemiBold" FontSize="12" VerticalAlignment="Center" HorizontalAlignment="Right"/>
             </Grid>
+        </Border>
 
-            <Button Content="Download" Command="{Binding DownloadCommand}" HorizontalAlignment="Right" />
-        </StackPanel>
+        <!-- ── Bestätigungsleiste vor destruktiven Ventoy-Aktionen (unverändert aus Phase 2) ── -->
+        <Border Grid.Row="2" Grid.RowSpan="1" VerticalAlignment="Bottom" Margin="18,0,18,-1"
+                IsVisible="{Binding PendingConfirmationMessage, Converter={x:Static ObjectConverters.IsNotNull}}"
+                Background="#FFF3CD" BorderBrush="#FFCA2C" BorderThickness="1" Padding="10" CornerRadius="4"
+                ZIndex="10">
+            <StackPanel Spacing="8">
+                <TextBlock Text="{Binding PendingConfirmationMessage}" TextWrapping="Wrap" Foreground="#664D03" FontWeight="Bold"/>
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button Classes="danger" Content="{Binding VentoyConfirmYesLabel}" Command="{Binding ConfirmVentoyCommand}"/>
+                    <Button Classes="ghost" Content="{Binding VentoyConfirmCancelLabel}" Command="{Binding CancelVentoyCommand}"/>
+                </StackPanel>
+            </StackPanel>
+        </Border>
 
-        <Grid ColumnDefinitions="160,*">
-            <ListBox Grid.Column="0" ItemsSource="{Binding Categories}" SelectedItem="{Binding SelectedCategory}" Margin="0,0,8,0">
-                <ListBox.ItemTemplate>
-                    <DataTemplate>
-                        <TextBlock Text="{Binding Label}" />
-                    </DataTemplate>
-                </ListBox.ItemTemplate>
-            </ListBox>
+        <!-- ── Haupt-Inhalt ────────────────────────────────────────────── -->
+        <TabControl Grid.Row="3">
 
-            <ListBox Grid.Column="1" ItemsSource="{Binding Rows}" SelectedItem="{Binding SelectedRow}">
-                <ListBox.ItemTemplate>
-                    <DataTemplate>
-                        <Grid ColumnDefinitions="*,Auto,Auto">
-                            <TextBlock Grid.Column="0" Text="{Binding Name}" />
-                            <TextBlock Grid.Column="1" Text="{Binding SizeLabel}" Margin="8,0" />
-                            <TextBlock Grid.Column="2" Text="{Binding StatusLabel}" />
+            <TabItem Header="{Binding TabIsoSelectionLabel}">
+                <Grid RowDefinitions="Auto,*">
+                    <!-- Spaltenbreiten "28,36,*,100,100,100" spiegeln EXAKT das EntryTemplate-Grid unten
+                         (gleiche Einrückung 28px vor der Checkbox), damit Kopf- und Datenspalten fluchten. -->
+                    <Border Grid.Row="0" Background="{DynamicResource BrushCard}"
+                            BorderBrush="{DynamicResource BrushBorder}" BorderThickness="0,0,0,1" Padding="4,7">
+                        <Grid ColumnDefinitions="28,36,*,100,100,100">
+                            <TextBlock Grid.Column="2" Text="{Binding ColumnDistributionLabel}"
+                                       FontWeight="Bold" FontSize="11" Foreground="{DynamicResource BrushMid}"/>
+                            <TextBlock Grid.Column="3" Text="{Binding ColumnLocalLabel}"
+                                       FontWeight="Bold" FontSize="11" Foreground="{DynamicResource BrushMid}"/>
+                            <TextBlock Grid.Column="4" Text="{Binding ColumnOnStickLabel}"
+                                       FontWeight="Bold" FontSize="11" Foreground="{DynamicResource BrushMid}"/>
+                            <TextBlock Grid.Column="5" Text="{Binding ColumnCurrentLabel}"
+                                       FontWeight="Bold" FontSize="11" Foreground="{DynamicResource BrushMid}"/>
                         </Grid>
-                    </DataTemplate>
-                </ListBox.ItemTemplate>
-            </ListBox>
-        </Grid>
-    </DockPanel>
+                    </Border>
+
+                    <ScrollViewer Grid.Row="1" Background="{DynamicResource BrushWhite}">
+                        <ItemsControl ItemsSource="{Binding Groups}" Margin="4,2,4,12">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:CategoryGroup">
+                                    <StackPanel Margin="0,0,0,2">
+                                        <!-- Kategorie-Checkbox bewusst weit links (Padding 8 statt 14) — die Distro-
+                                             Checkboxen darunter sind zusätzlich per Grid-Spalte eingerückt (siehe
+                                             EntryTemplate-Grid "28,36,..."), damit die Eltern/Kind-Hierarchie
+                                             (Sammel-Checkbox oben, einzelne Einträge darunter) optisch erkennbar ist
+                                             (Nutzerfund: "Hauptkategorie weiter links, Distros darunter versetzt"). -->
+                                        <Border Background="{DynamicResource BrushCard}" Padding="8,8" Margin="0,6,0,0">
+                                            <StackPanel Orientation="Horizontal">
+                                                <CheckBox IsThreeState="True" IsChecked="{Binding AllSelected, Mode=TwoWay}"
+                                                          VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                                <TextBlock Text="{Binding CategoryLabel}" FontWeight="Bold" FontSize="13.5"
+                                                           Foreground="{DynamicResource BrushHeader}" VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                        </Border>
+                                        <ItemsControl ItemsSource="{Binding Entries}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate x:DataType="vm:LinuxIsoRow">
+                                                    <Border Padding="0,5" BorderBrush="{DynamicResource BrushBorder}"
+                                                            BorderThickness="0,0,0,1">
+                                                        <Grid ColumnDefinitions="28,36,*,100,100,100">
+                                                            <CheckBox Grid.Column="1" IsChecked="{Binding IsSelected}"
+                                                                      VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                                                            <TextBlock Grid.Column="2" Text="{Binding Name}"
+                                                                       Foreground="{DynamicResource BrushHeader}"
+                                                                       FontSize="12.5" FontWeight="SemiBold"
+                                                                       VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                                                            <TextBlock Grid.Column="3" Text="{Binding LocalStatus}"
+                                                                       Foreground="{DynamicResource BrushMid}"
+                                                                       FontSize="11.5" VerticalAlignment="Center"/>
+                                                            <TextBlock Grid.Column="4" Text="{Binding UsbStatus}"
+                                                                       Foreground="{DynamicResource BrushMid}"
+                                                                       FontSize="11.5" VerticalAlignment="Center"/>
+                                                            <TextBlock Grid.Column="5" Text="{Binding VersionStatus}"
+                                                                       Foreground="{DynamicResource BrushMid}"
+                                                                       FontSize="11.5" VerticalAlignment="Center"/>
+                                                        </Grid>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </Grid>
+            </TabItem>
+
+            <TabItem Header="{Binding TabLogLabel}">
+                <Grid RowDefinitions="*,Auto">
+                    <ScrollViewer Grid.Row="0" Background="{DynamicResource BrushWhite}">
+                        <ItemsControl ItemsSource="{Binding LogEntries}" Margin="10">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="x:String">
+                                    <TextBlock Text="{Binding}" FontFamily="Consolas,Courier New,monospace"
+                                               FontSize="11" Foreground="{DynamicResource BrushHeader}" Margin="0,1"/>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                    <Button Grid.Row="1" Classes="ghost" Content="{Binding LogClearLabel}"
+                            HorizontalAlignment="Right" Margin="8"
+                            Command="{Binding ClearLogCommand}"/>
+                </Grid>
+            </TabItem>
+
+            <TabItem Header="{Binding TabStatusLabel}">
+                <ScrollViewer Background="{DynamicResource BrushWhite}">
+                    <StackPanel Margin="12">
+                        <TextBlock Text="{Binding StatusCurrentOperationLabel}" FontWeight="Bold" FontSize="13"
+                                   Foreground="{DynamicResource BrushMid}" Margin="0,0,0,4"/>
+                        <TextBlock Text="{Binding StatusIdleLabel}" FontSize="12" Margin="0,0,0,12"
+                                   IsVisible="{Binding !HasAnyStatus}"/>
+                        <StackPanel IsVisible="{Binding HasAnyStatus}" Margin="0,0,0,12" Spacing="4">
+                            <TextBlock Text="{Binding DownloadStatus}" FontSize="12"
+                                       IsVisible="{Binding DownloadStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                            <TextBlock Text="{Binding CopyStatus}" FontSize="12"
+                                       IsVisible="{Binding CopyStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                            <TextBlock Text="{Binding VentoyStatus}" FontSize="12" TextWrapping="Wrap"
+                                       IsVisible="{Binding VentoyStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                        </StackPanel>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+        </TabControl>
+
+        <!-- ── Aktionsleiste ──────────────────────────────────────────── -->
+        <Border Grid.Row="4" Background="{DynamicResource BrushWhite}"
+                BorderBrush="{DynamicResource BrushBorder}" BorderThickness="0,1,0,0">
+            <StackPanel Margin="12,8" Spacing="6">
+                <StackPanel Orientation="Horizontal">
+                    <Button Classes="primary" Content="{Binding ActionDownloadLabel}" Width="180"
+                            Command="{Binding DownloadCommand}" Margin="0,0,8,0"/>
+                    <Button Classes="warning" Content="{Binding ActionCheckUpdatesLabel}" Width="150"
+                            IsEnabled="False" ToolTip.Tip="{Binding ActionNotAvailableTooltip}"/>
+                    <TextBlock Text="{Binding DownloadPercent, StringFormat={}{0}%}" VerticalAlignment="Center"
+                               Foreground="{DynamicResource BrushBlue}" FontSize="11.5" Margin="8,0"
+                               IsVisible="{Binding IsBusy}"/>
+                </StackPanel>
+
+                <!-- "ExpertBar": die restlichen Windows-Werkzeuge sichtbar, aber ohne Linux-Backing
+                     deaktiviert (Phase B füllt diese, siehe Plan) — "Auf Stick kopieren" bleibt aktiv,
+                     das Feature existiert bereits (Phase 2). -->
+                <StackPanel Orientation="Horizontal">
+                    <Button Classes="ghost" Content="{Binding ActionCheckUrlsLabel}" Width="130" Margin="0,0,8,0"
+                            IsEnabled="False" ToolTip.Tip="{Binding ActionNotAvailableTooltip}"/>
+                    <Button Classes="ghost" Content="{Binding ActionSearchIsoLabel}" Width="130" Margin="0,0,8,0"
+                            IsEnabled="False" ToolTip.Tip="{Binding ActionNotAvailableTooltip}"/>
+                    <Button Classes="ghost" Content="{Binding ActionDatabaseLabel}" Width="130" Margin="0,0,8,0"
+                            IsEnabled="False" ToolTip.Tip="{Binding ActionNotAvailableTooltip}"/>
+                    <Button Classes="ghost" Content="{Binding ActionDbHealthCheckLabel}" Width="170" Margin="0,0,8,0"
+                            IsEnabled="False" ToolTip.Tip="{Binding ActionNotAvailableTooltip}"/>
+                    <Button Classes="ghost" Content="{Binding ActionCopyToStickLabel}" Width="210" Margin="0,0,8,0"
+                            Command="{Binding CopyToStickCommand}"/>
+                    <Button Classes="ghost" Content="{Binding ActionVerifyIntegrityLabel}" Width="160" Margin="0,0,8,0"
+                            IsEnabled="False" ToolTip.Tip="{Binding ActionNotAvailableTooltip}"/>
+                    <Button Classes="ghost" Content="{Binding ActionGitHubTokenLabel}" Width="130"
+                            IsEnabled="False" ToolTip.Tip="{Binding ActionNotAvailableTooltip}"/>
+                </StackPanel>
+
+                <Grid ColumnDefinitions="*,Auto">
+                    <ProgressBar Grid.Column="0" Height="5" Maximum="100" Value="{Binding DownloadPercent}"
+                                 VerticalAlignment="Center" IsVisible="{Binding IsBusy}"/>
+                </Grid>
+            </StackPanel>
+        </Border>
+
+        <!-- ── Statusleiste ────────────────────────────────────────────── -->
+        <Border Grid.Row="5" Background="{DynamicResource BrushCard}"
+                BorderBrush="{DynamicResource BrushBorder}" BorderThickness="0,1,0,0">
+            <Grid ColumnDefinitions="*,Auto" Margin="12,0">
+                <TextBlock Grid.Column="0" Text="{Binding StatusBarText}" VerticalAlignment="Center"
+                           FontSize="11" Foreground="{DynamicResource BrushMid}" TextTrimming="CharacterEllipsis"/>
+                <CheckBox Grid.Column="1" Content="{Binding ShowInfoOnHoverLabel}"
+                          IsChecked="{Binding ShowInfoOnHover}" FontSize="10.5" VerticalAlignment="Center"/>
+            </Grid>
+        </Border>
+
+    </Grid>
 </Window>
