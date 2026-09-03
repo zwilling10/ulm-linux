@@ -68,6 +68,10 @@
     <Compile Include="..\Core\Services\HttpService.DistroResolvers.cs" Link="Core\Services\HttpService.DistroResolvers.cs" />
     <Compile Include="..\Core\Services\IsoDatabaseService.cs" Link="Core\Services\IsoDatabaseService.cs" />
     <Compile Include="..\Core\Services\UsbService.cs" Link="Core\Services\UsbService.cs" />
+    <!-- Komplett plattformneutral (nur System.*-Usings, keine System.Windows-Typen, kein
+         Verb="runas") — verifiziert vor der Aufnahme, siehe Phase-B-1-Plan. Liefert u.a.
+         UpdateScanWorker für den DB-Gesundheitscheck. -->
+    <Compile Include="..\Core\Workers\Workers.cs" Link="Core\Workers\Workers.cs" />
     <Compile Include="..\Infrastructure\AppLanguage.cs" Link="Infrastructure\AppLanguage.cs" />
     <Compile Include="..\Infrastructure\Str.cs" Link="Infrastructure\Str.cs" />
     <Compile Include="..\Infrastructure\LocalizationService.cs" Link="Infrastructure\LocalizationService.cs" />

@@ -246,13 +246,13 @@
                     <Button Classes="ghost" Content="{Binding ActionDatabaseLabel}" Width="130" Margin="0,0,8,0"
                             IsEnabled="False" ToolTip.Tip="{Binding ActionNotAvailableTooltip}"/>
                     <Button Classes="ghost" Content="{Binding ActionDbHealthCheckLabel}" Width="170" Margin="0,0,8,0"
-                            IsEnabled="False" ToolTip.Tip="{Binding ActionNotAvailableTooltip}"/>
+                            Command="{Binding RunHealthCheckCommand}"/>
                     <Button Classes="ghost" Content="{Binding ActionCopyToStickLabel}" Width="210" Margin="0,0,8,0"
                             Command="{Binding CopyToStickCommand}"/>
                     <Button Classes="ghost" Content="{Binding ActionVerifyIntegrityLabel}" Width="160" Margin="0,0,8,0"
                             IsEnabled="False" ToolTip.Tip="{Binding ActionNotAvailableTooltip}"/>
                     <Button Classes="ghost" Content="{Binding ActionGitHubTokenLabel}" Width="130"
-                            IsEnabled="False" ToolTip.Tip="{Binding ActionNotAvailableTooltip}"/>
+                            Click="BtnGitHubToken_Click"/>
                 </StackPanel>
 
                 <Grid ColumnDefinitions="*,Auto">

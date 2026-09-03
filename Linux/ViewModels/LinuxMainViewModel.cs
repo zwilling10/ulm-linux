@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using ULM.Core.Models;
 using ULM.Core.Services;
+using ULM.Core.Workers;
 using ULM.Infrastructure;
 using ULM.ViewModels;
 
@@ -55,6 +56,10 @@ namespace ULM.Linux.ViewModels
             ConfirmVentoyCommand   = new RelayCommand(() => _ = ConfirmVentoyAsync(), () => PendingConfirmationMessage is not null && !IsBusy);
             CancelVentoyCommand    = new RelayCommand(() => PendingConfirmationMessage = null, () => PendingConfirmationMessage is not null);
             ClearLogCommand        = new RelayCommand(() => LogEntries.Clear());
+            RunHealthCheckCommand  = new RelayCommand(() => _ = RunHealthCheckAsync(), () => !IsBusy && !HealthCheckActive);
+
+            _gitHubToken = IniService.Read(_settingsIniPath, "App", "GitHubToken", string.Empty);
+            HttpService.Instance.GitHubToken = _gitHubToken;
 
             ApplyFilter();
         }
@@ -127,6 +132,7 @@ namespace ULM.Linux.ViewModels
             RequestVentoyInstallCommand.RaiseCanExecuteChanged();
             RequestVentoyUpdateCommand.RaiseCanExecuteChanged();
             ConfirmVentoyCommand.RaiseCanExecuteChanged();
+            RunHealthCheckCommand.RaiseCanExecuteChanged();
         }
 
         private int _downloadPercent;
@@ -259,6 +265,40 @@ namespace ULM.Linux.ViewModels
         public bool HasAnyStatus =>
             !string.IsNullOrEmpty(DownloadStatus) || !string.IsNullOrEmpty(CopyStatus) || !string.IsNullOrEmpty(VentoyStatus);
 
+        private string _gitHubToken = string.Empty;
+        /// <summary>Optionales GitHub Personal Access Token — hebt nur das API-Limit für
+        /// GitHub-basierte Distro-Resolver von 60 auf 5000 Anfragen/Std an (siehe
+        /// HttpService.GitHubToken). Persistiert wie unter Windows in der Settings-Ini.</summary>
+        public string GitHubToken
+        {
+            get => _gitHubToken;
+            set
+            {
+                if (!SetField(ref _gitHubToken, value)) return;
+                IniService.Write(_settingsIniPath, "App", "GitHubToken", value);
+                HttpService.Instance.GitHubToken = value;
+            }
+        }
+
+        private bool _healthCheckActive;
+        public bool HealthCheckActive
+        {
+            get => _healthCheckActive;
+            private set { if (SetField(ref _healthCheckActive, value)) RunHealthCheckCommand.RaiseCanExecuteChanged(); }
+        }
+
+        private int _healthCheckPercent;
+        public int HealthCheckPercent
+        {
+            get => _healthCheckPercent;
+            private set => SetField(ref _healthCheckPercent, value);
+        }
+
+        /// <summary>Wird nach Abschluss von RunHealthCheckAsync() mit den Pro-Distro-Ergebnissen
+        /// gefeuert — die View öffnet darauf den DbHealthCheckDialog (gleiches Owner-Code-behind-
+        /// Muster wie Windows' MainWindow.xaml.cs, keine reine MVVM-Navigation, siehe Plan).</summary>
+        public event Action<IReadOnlyList<VersionCheckEntryResult>>? HealthCheckCompleted;
+
         /// <summary>Fügt eine Zeile zum Protokoll-Tab hinzu. Kein Zeitstempel/Rotation wie beim
         /// Windows-`AppendLog` — bewusst minimal für Phase A, siehe Plan.</summary>
         private void AppendLog(string line)
@@ -276,6 +316,7 @@ namespace ULM.Linux.ViewModels
         public RelayCommand ConfirmVentoyCommand { get; }
         public RelayCommand CancelVentoyCommand { get; }
         public RelayCommand ClearLogCommand { get; }
+        public RelayCommand RunHealthCheckCommand { get; }
 
         /// <summary>Statusleisten-Text (Windows-Pendant: `StatusText`/`StatusLbl`) — zeigt die
         /// zuletzt geänderte der drei Vorgangs-Statuszeilen, sonst leer.</summary>
@@ -488,6 +529,32 @@ namespace ULM.Linux.ViewModels
             {
                 IsBusy = false;
             }
+        }
+
+        /// <summary>Windows-Pendant: MainViewModel.RunHealthCheck() (ViewModels/MainViewModel.cs
+        /// ~Zeile 1349) — nutzt denselben plattformneutralen UpdateScanWorker aus
+        /// Core/Workers/Workers.cs, nur das UI-Thread-Marshalling ist Avalonia- statt WPF-Dispatcher.</summary>
+        public async Task RunHealthCheckAsync()
+        {
+            if (IsBusy || HealthCheckActive) return;
+            HealthCheckActive = true;
+            HealthCheckPercent = 0;
+            var results = new List<VersionCheckEntryResult>();
+            var worker = new UpdateScanWorker(_db.Entries, _downloadDirectory, checkAllEntries: true);
+            worker.Progress += (c, t) => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                HealthCheckPercent = t > 0 ? (c * 100) / t : 0);
+            worker.EntryChecked += result => Avalonia.Threading.Dispatcher.UIThread.Post(() => results.Add(result));
+
+            var tcs = new TaskCompletionSource();
+            worker.Completed += (_, _) => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            {
+                HealthCheckActive = false;
+                HealthCheckPercent = 100;
+                HealthCheckCompleted?.Invoke(results);
+                tcs.TrySetResult();
+            });
+            await worker.RunAsync().ConfigureAwait(true);
+            await tcs.Task.ConfigureAwait(true);
         }
 
         public async Task PollDrivesAsync()

@@ -1,5 +1,6 @@
 using System.Linq;
 using ULM.Core.Models;
+using ULM.Core.Services;
 using ULM.Infrastructure;
 using ULM.Linux.ViewModels;
 using Xunit;
@@ -183,6 +184,31 @@ namespace ULM.Linux.Tests
 
             System.IO.Directory.Delete(downloadDir, true);
             System.IO.Directory.Delete(stickDir, true);
+        }
+
+        [Fact]
+        public void GitHubToken_LoadsFromIniOnConstruction()
+        {
+            string tempSettings = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"ulm-linux-ghtoken-{System.Guid.NewGuid():N}.ini");
+            IniService.Write(tempSettings, "App", "GitHubToken", "ghp_existing");
+
+            var vm = new LinuxMainViewModel(BuildDb(), "/tmp/ulm-linux-vm-test", tempSettings);
+
+            Assert.Equal("ghp_existing", vm.GitHubToken);
+            System.IO.File.Delete(tempSettings);
+        }
+
+        [Fact]
+        public void GitHubToken_Setter_PersistsToIniAndUpdatesHttpService()
+        {
+            string tempSettings = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"ulm-linux-ghtoken-{System.Guid.NewGuid():N}.ini");
+            var vm = new LinuxMainViewModel(BuildDb(), "/tmp/ulm-linux-vm-test", tempSettings);
+
+            vm.GitHubToken = "ghp_new_token";
+
+            Assert.Equal("ghp_new_token", IniService.Read(tempSettings, "App", "GitHubToken", ""));
+            Assert.Equal("ghp_new_token", HttpService.Instance.GitHubToken);
+            System.IO.File.Delete(tempSettings);
         }
     }
 

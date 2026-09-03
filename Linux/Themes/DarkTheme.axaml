@@ -50,6 +50,13 @@
         <Setter Property="FontFamily" Value="{DynamicResource FontMain}"/>
     </Style>
 
+    <!-- Default-Vorgabe für alle TextBlocks (Phase B: neue reine Code-behind-Dialoge wie
+         GitHubTokenDialog/DbHealthCheckDialog setzen dadurch NICHT jede TextBlock-Foreground
+         einzeln — nur die wenigen Sonderfarben wie Grün/Rot bleiben explizit). -->
+    <Style Selector="TextBlock">
+        <Setter Property="Foreground" Value="{DynamicResource BrushHeader}"/>
+    </Style>
+
     <!-- ═══ Button-Basis ═══════════════════════════════════════════════
          CornerRadius 5, Höhe 32, Padding 14x7, SemiBold 11.5 — wie WPF BtnBase.
          Varianten als CSS-artige Klassen: Button.primary/success/warning/danger/ghost/secondary. -->
