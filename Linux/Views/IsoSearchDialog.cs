@@ -133,10 +133,14 @@ namespace ULM.Linux.Views
 
                 foreach (DiscoveredDistro d in result.Items)
                 {
-                    var row = new Grid { Margin = new Thickness(0, 2, 0, 2), ColumnDefinitions = new ColumnDefinitions("24,*,150,Auto") };
+                    var row = new Grid { Margin = new Thickness(0, 2, 0, 2), ColumnDefinitions = new ColumnDefinitions("34,*,150,Auto") };
                     ApplyRowHighlight(row, d);
 
-                    var chk = new CheckBox { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4), IsEnabled = !d.AlreadyInDb };
+                    // Nutzerfund (2026-09-03, Screenshot): Checkbox wirkte "abgeschnitten" — die
+                    // Spalte war mit 24px knapper bemessen als Fluents CheckBox-Indikator (~20px)
+                    // plus 4px Rand auf jeder Seite tatsächlich braucht (24 - 8 = 16px reichten
+                    // nicht). Spalte auf 34px verbreitert, Rand entsprechend verschmälert.
+                    var chk = new CheckBox { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(2), IsEnabled = !d.AlreadyInDb };
                     Grid.SetColumn(chk, 0);
                     row.Children.Add(chk);
 
@@ -150,7 +154,13 @@ namespace ULM.Linux.Views
                     Grid.SetColumn(nameTb, 1);
                     row.Children.Add(nameTb);
 
-                    var catCb = new ComboBox { Margin = new Thickness(6, 2), IsEnabled = !d.AlreadyInDb };
+                    // Nutzerfund (2026-09-03, Screenshot "Beliebteste"-Tab): Kategorie-Dropdowns
+                    // wirkten zeilenweise uneinheitlich ausgerichtet — im Gegensatz zu chk/nameTb/
+                    // infoTb hier VerticalAlignment=Center gefehlt (Grid-Zellen defaulten auf
+                    // Stretch), dadurch streckte sich die ComboBox auf die volle, je nach
+                    // Icon-Glyph (⚙ vs. 🖥 vs. 🎮 — unterschiedliche Fallback-Schriften mit
+                    // unterschiedlichen Zeilenhöhen) leicht schwankende Zeilenhöhe.
+                    var catCb = new ComboBox { Margin = new Thickness(6, 2), VerticalAlignment = VerticalAlignment.Center, IsEnabled = !d.AlreadyInDb };
                     DbFieldHelpers.FillCategoryCombo(catCb, d.SuggestedCategory);
                     Grid.SetColumn(catCb, 2);
                     row.Children.Add(catCb);
