@@ -40,8 +40,22 @@
              Schriftliste zuverlässiger auf. Nutzerfund: 🔒 (Sicherheit-Kategorie) rendert fein,
              🎮 (Gaming-Kategorie) zeigte ein falsches Icon — beide Emojis kommen aus der von
              Windows mitgenutzten Str.Category_*-Konstante, das ist also ein reines
-             Linux-Rendering-Thema, kein Datenfehler. -->
-        <FontFamily x:Key="FontMain">Segoe UI,Tahoma,Arial,Noto Color Emoji,sans-serif</FontFamily>
+             Linux-Rendering-Thema, kein Datenfehler.
+             Nutzerfund (2026-09-03, ISO-Suche-Screenshot): Ziffern/Satzzeichen (Datum, Uhrzeit,
+             "09-02" etc.) erschienen mit sichtbarem Abstand zwischen JEDEM Zeichen ("0 3 . 0 9"
+             statt "03.09"), reine Buchstaben (SlyOS, Einsteiger) unauffällig. Ursache: Auf einem
+             frischen Linux-Mint-System sind weder "Segoe UI" noch "Tahoma" noch "Arial"
+             installiert (`fc-list` bestätigt das) — Avalonia/fontconfig wählt dadurch bereits
+             "Noto Color Emoji" als PRIMÄRschrift für die ganze Liste (nicht nur als Fallback für
+             einzelne fehlende Glyphen). Diese Emoji-Schrift enthält Glyphen für Ziffern/#/* (Basis
+             der Tastenkappen-Emojis 0️⃣-9️⃣), aber mit fester, emoji-breiter Zeichenbreite — daher
+             der optische Abstand. Buchstaben fehlen in "Noto Color Emoji" komplett, fallen also
+             korrekt auf eine echte Textschrift zurück und sehen deshalb normal aus. Fix: "Noto
+             Sans" (auf Linux Mint vorinstalliert, exakt das, worauf der generische "sans-serif"-
+             Alias ohnehin zeigt) VOR "Noto Color Emoji" eingereiht — greift auf Linux jetzt zuerst
+             für normalen Text, "Noto Color Emoji" bleibt als Fallback für echte Emoji-Zeichen
+             erhalten (🔒/🎮-Fix von oben bleibt unverändert wirksam). -->
+        <FontFamily x:Key="FontMain">Segoe UI,Tahoma,Arial,Noto Sans,Noto Color Emoji,sans-serif</FontFamily>
     </Styles.Resources>
 
     <!-- ═══ Fenster-Grundfarben ═══════════════════════════════════════ -->
