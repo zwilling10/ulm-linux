@@ -76,6 +76,21 @@ namespace ULM.Core.Services
                 req.Headers.TryAddWithoutValidation("User-Agent", SourceForgeDownloadUserAgent);
         }
 
+        // Gleicher Effekt wie bei SourceForge oben, aber für reine Seitenabrufe (GetStringAsync)
+        // statt Downloads: distrowatch.com liefert mit dem Standard-Chrome-User-Agent 403
+        // Forbidden (Bot-Erkennung erkennt den TLS-/Verhaltens-Mismatch eines HttpClients, der
+        // Chrome nur behauptet, ohne es zu sein), mit einem curl-artigen UA dagegen 200 — live per
+        // curl verifiziert. Betrifft DiscoveryService's "Aktuellste"/"Beliebteste"-Listen
+        // (ISO-Suche) sowie ResolveViaDistroWatchAsync weiter unten in dieser Datei, die beide
+        // ausschließlich über GetStringAsync auf distrowatch.com zugreifen.
+        private static void ApplyPageUserAgentOverride(HttpRequestMessage req)
+        {
+            string? host = req.RequestUri?.Host;
+            if (host != null && (host.Equals("distrowatch.com", StringComparison.OrdinalIgnoreCase)
+                                  || host.EndsWith(".distrowatch.com", StringComparison.OrdinalIgnoreCase)))
+                req.Headers.TryAddWithoutValidation("User-Agent", SourceForgeDownloadUserAgent);
+        }
+
         private HttpService()
         {
             var handler = new SocketsHttpHandler
@@ -200,7 +215,11 @@ namespace ULM.Core.Services
             try
             {
                 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds));
-                string text   = await _client.GetStringAsync(url, cts.Token).ConfigureAwait(false);
+                using var req = new HttpRequestMessage(HttpMethod.Get, url);
+                ApplyPageUserAgentOverride(req);
+                using HttpResponseMessage resp = await _client.SendAsync(req, cts.Token).ConfigureAwait(false);
+                resp.EnsureSuccessStatusCode();
+                string text = await resp.Content.ReadAsStringAsync(cts.Token).ConfigureAwait(false);
                 await SetCachedAsync(cacheKey, text).ConfigureAwait(false);
                 return text;
             }
