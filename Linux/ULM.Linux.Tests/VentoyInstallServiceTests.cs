@@ -80,7 +80,11 @@ namespace ULM.Linux.Tests
                 fetchLatestUrl: () => Task.FromResult("https://example.invalid/ventoy.tar.gz"),
                 download: (u, d, p, t) => Task.FromResult(true),
                 runElevated: runElevated,
-                cacheDir: cacheDir);
+                cacheDir: cacheDir,
+                // Kein echter udisksctl-Aufruf in Tests — deviceNode ist hier immer die
+                // Literalzeichenkette "/dev/sdb", die auf dem Testrechner ein echtes,
+                // eingehängtes Gerät sein könnte.
+                unmount: (dev, log, ct) => Task.CompletedTask);
         }
 
         [Fact]

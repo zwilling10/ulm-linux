@@ -380,7 +380,10 @@ namespace ULM.Linux.Tests
 
             var ventoyService = new VentoyInstallService(
                 runElevated: (cmd, args, onLog, token) => System.Threading.Tasks.Task.FromResult((0, "")),
-                cacheDir: cacheDir);
+                cacheDir: cacheDir,
+                // Kein echter udisksctl-Aufruf in Tests — SelectedDrive.DeviceNode ist hier
+                // "/dev/sdb", auf dem Testrechner potenziell ein echtes, eingehängtes Gerät.
+                unmount: (dev, log, ct) => System.Threading.Tasks.Task.CompletedTask);
             var vm = BuildVmWithDrive(ventoyService);
             vm.RequestVentoyInstallCommand.Execute(null);
 
