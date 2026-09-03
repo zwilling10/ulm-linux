@@ -40,5 +40,16 @@ namespace ULM.Linux.Views
             var dlg = new DbHealthCheckDialog(results);
             _ = dlg.ShowDialog(this);
         }
+
+        // Arbeitet direkt gegen IsoDatabaseService.Instance statt vm._db (siehe Plan/Windows-
+        // Vorbild BtnEditDb_Click) — MoveUp/MoveDown existieren nur auf der konkreten Klasse.
+        private async void BtnDatabase_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+        {
+            if (_vm is null || _vm.IsBusy) return;
+            var dlg = new IsoListDialog(ULM.Core.Services.IsoDatabaseService.Instance);
+            await dlg.ShowDialog<bool>(this);
+            _vm.Refresh();
+            if (dlg.AnyEntryAdded) _vm.RunHealthCheckCommand.Execute(null);
+        }
     }
 }
