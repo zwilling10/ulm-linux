@@ -175,9 +175,18 @@ namespace ULM.Linux
             // "erfolgreich"). Die eigentliche Bestaetigung ist bereits vorher ueber ULMs eigene
             // Inline-Warnleiste erfolgt, daher hier automatisch "y" beantworten statt den Nutzer
             // ein zweites Mal (diesmal in einem unsichtbaren Konsolen-Prompt) zu fragen.
+            //
+            // Nutzerfund (echte Hardware, nach dem obigen Fix): EIN "y" reichte nicht — tool/
+            // VentoyWorker.sh fragt bei einer NEU-Installation zweimal nach ("Continue? (y/n)"
+            // dann "Double-check. Continue? (y/n)", Zeilen ~260/269), das Update (-u) dagegen nur
+            // einmal (Zeile ~406/569). Die zweite, unbeantwortete read-Zeile blockierte den Prozess
+            // für immer (stdin blieb offen, aber leer — kein EOF, kein Fortschritt, kein Log mehr).
+            // Vier "y"-Zeilen decken großzügig jeden bekannten Pfad ab; überzählige Antworten
+            // werden von bash schlicht nie gelesen, wenn der Prozess vorher durchläuft/beendet.
             try
             {
-                await proc.StandardInput.WriteLineAsync("y").ConfigureAwait(false);
+                for (int i = 0; i < 4; i++)
+                    await proc.StandardInput.WriteLineAsync("y").ConfigureAwait(false);
                 await proc.StandardInput.FlushAsync().ConfigureAwait(false);
             }
             catch { /* Prozess evtl. bereits beendet oder erwartet gar keine Eingabe - kein Fehlerfall */ }
