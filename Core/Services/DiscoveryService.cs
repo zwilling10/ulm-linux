@@ -104,7 +104,15 @@ namespace ULM.Core.Services
         // ── "Beliebteste": DistroWatch Page-Hit-Ranking, Tabelle "Last 12 months" ─
         private async Task<List<DiscoveredDistro>> FetchMostPopularAsync()
         {
-            string? html = await HttpService.Instance.GetStringAsync("https://distrowatch.com/dwres.php?resource=popularity", 15).ConfigureAwait(false);
+            // Nutzerfund (2026-09-03): DistroWatch hat die Page-Hit-Ranking-Tabelle von ihrer
+            // eigenen Unterseite (dwres.php?resource=popularity) auf die Startseite verschoben —
+            // die Unterseite liefert weiterhin 200 OK samt Erklärtext ("The tables below
+            // display..."), aber KEINE Tabellenzeilen mehr (0 Treffer trotz erfolgreichem Abruf,
+            // Browser-Navigation zu der URL leitet inzwischen sogar direkt auf die Startseite um).
+            // Die Tabelle selbst (<th class="phr1">/<td class="phr2">/<td class="phr3">) sitzt
+            // unverändert auf der Startseite, exakt dieselbe Quelle wie FetchLatestAdditionsAsync
+            // bereits nutzt — Regex brauchte dafür keine Anpassung, nur die URL.
+            string? html = await HttpService.Instance.GetStringAsync("https://distrowatch.com/", 15).ConfigureAwait(false);
             if (html is null) return new List<DiscoveredDistro>();
 
             // Beobachtetes Muster (erste Tabelle im Dokument = "Last 12 months", Ranking-Reihenfolge
