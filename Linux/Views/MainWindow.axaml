@@ -242,7 +242,7 @@
                     <Button Classes="ghost" Content="{Binding ActionCheckUrlsLabel}" Width="130" Margin="0,0,8,0"
                             IsEnabled="False" ToolTip.Tip="{Binding ActionNotAvailableTooltip}"/>
                     <Button Classes="ghost" Content="{Binding ActionSearchIsoLabel}" Width="130" Margin="0,0,8,0"
-                            IsEnabled="False" ToolTip.Tip="{Binding ActionNotAvailableTooltip}"/>
+                            Click="BtnSearchIso_Click"/>
                     <Button Classes="ghost" Content="{Binding ActionDatabaseLabel}" Width="130" Margin="0,0,8,0"
                             Click="BtnDatabase_Click"/>
                     <Button Classes="ghost" Content="{Binding ActionDbHealthCheckLabel}" Width="170" Margin="0,0,8,0"

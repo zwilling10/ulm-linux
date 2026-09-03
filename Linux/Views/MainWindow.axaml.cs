@@ -1,5 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
+using ULM.Infrastructure;
 using ULM.Linux.ViewModels;
 
 namespace ULM.Linux.Views
@@ -50,6 +51,31 @@ namespace ULM.Linux.Views
             await dlg.ShowDialog<bool>(this);
             _vm.Refresh();
             if (dlg.AnyEntryAdded) _vm.RunHealthCheckCommand.Execute(null);
+        }
+
+        // Windows-Vorbild: MainWindow.xaml.cs BtnSearch_Click. Bewusst OHNE den dortigen
+        // Auto-Download-Teil (ToDownload -> sofortiger Mehrfach-Download) — Linux' DownloadCommand
+        // kennt nur SelectedRow (Single-Select), ein Massen-Download über IsSelected-Zeilen ist
+        // kein bestehendes Feature (siehe Phase-A/B-4-Plan). Übernommene "sofort herunterladen"-
+        // Einträge werden stattdessen nur in der Hauptliste vorausgewählt.
+        private async void BtnSearchIso_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+        {
+            if (_vm is null) return;
+            var dlg = new IsoSearchDialog();
+            await dlg.ShowDialog<bool>(this);
+            if (dlg.AddedEntries.Count == 0) return;
+
+            foreach (var entry in dlg.AddedEntries) ULM.Core.Services.IsoDatabaseService.Instance.Add(entry);
+            ULM.Core.Services.IsoDatabaseService.Instance.Save();
+            _vm.Refresh();
+            _vm.LogEntries.Add(string.Format(LocalizationService.T(Str.Log_IsosAddedFromOnlineSearch), dlg.AddedEntries.Count));
+            // Frisch aus der Online-Suche übernommene Einträge haben nie eine geprüfte Url — wie bei
+            // Datenbank-Neuanlagen lohnt sich hier der volle Gesundheitscheck sofort.
+            _vm.RunHealthCheckCommand.Execute(null);
+
+            if (dlg.ToDownload.Count > 0)
+                foreach (var row in _vm.Rows)
+                    if (dlg.ToDownload.Contains(row.Entry)) row.IsSelected = true;
         }
     }
 }
