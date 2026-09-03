@@ -82,8 +82,13 @@ namespace ULM.Core.Services
             // Wochenrückblick-Widget verwendet (gleiche Zeilenstruktur, aber href ist dort eine volle
             // URL oder "weekly.php?..."). Nur echte Distro-Slugs (reines Wort, kein "/"/"?"/"http")
             // gehören zur "Latest Additions"-Box — sonst rutschen Nachrichtenartikel mit rein.
+            // Nutzerfund (2026-09-03): DistroWatch hat den Ankern inzwischen ein title="..."-Attribut
+            // VOR href spendiert (<a title="Beschreibung..." href="slyos">) — das starre "<a href="""
+            // matchte dadurch gar nichts mehr (0 Ergebnisse trotz erfolgreichem Seitenabruf, siehe
+            // HttpService-User-Agent-Fix daneben). "<a[^>]*href=" toleriert beliebige Attribute davor,
+            // exakt das Muster, das FetchMostPopularAsync für ihr <a>-Tag bereits nutzt.
             var matches = Regex.Matches(html,
-                @"<tr>\s*<th class=""News"">([\d-]+)</th>\s*<td class=""News""><a href=""([^""]+)"">([^<]+)</a></td>\s*</tr>",
+                @"<tr>\s*<th class=""News"">([\d-]+)</th>\s*<td class=""News""><a[^>]*href=""([^""]+)""[^>]*>([^<]+)</a></td>\s*</tr>",
                 RegexOptions.IgnoreCase);
 
             var candidates = matches.Cast<Match>()
