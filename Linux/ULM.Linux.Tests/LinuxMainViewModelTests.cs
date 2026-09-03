@@ -187,6 +187,70 @@ namespace ULM.Linux.Tests
         }
 
         [Fact]
+        public async System.Threading.Tasks.Task VerifyStickIntegrityAsync_NoDriveSelected_IsNoOp()
+        {
+            var vm = new LinuxMainViewModel(BuildDb(), "/tmp/ulm-linux-vm-test");
+            await vm.VerifyStickIntegrityAsync();
+            Assert.Equal(string.Empty, vm.IntegrityStatus);
+        }
+
+        // Legt ein ISO-großes (>= Constants.MinIsoSizeBytes) Sparse-File an — UsbService.
+        // ScanStickVerifiedAsync verwirft ohne Online-URL (unsere Test-Entries haben keine)
+        // sonst jede Datei unter dieser Schwelle als "unvollständig", bevor der eigentliche
+        // Hash-Vergleich überhaupt zum Zug kommt. SetLength erzeugt das Sparse-File nahezu
+        // sofort (kein echtes Beschreiben von 300+ MB).
+        private static void CreateIsoSizedFile(string path)
+        {
+            using var fs = System.IO.File.Create(path);
+            fs.SetLength(Constants.MinIsoSizeBytes + 1_000_000);
+        }
+
+        [Fact]
+        public async System.Threading.Tasks.Task VerifyStickIntegrityAsync_MatchingHash_NoMismatch()
+        {
+            var db = new FakeIsoDatabaseService();
+            var entry = new IsoEntry { Name = "Ubuntu 24.04 LTS", Category = "Einsteiger", Filename = "ubuntu.iso" };
+            db.Add(entry);
+            string stickDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"ulm-linux-integrity-{System.Guid.NewGuid():N}");
+            System.IO.Directory.CreateDirectory(stickDir);
+            string isoPath = System.IO.Path.Combine(stickDir, "ubuntu.iso");
+            CreateIsoSizedFile(isoPath);
+            entry.Sha256 = await IsoEntry.ComputeSha256Async(isoPath);
+
+            var vm = new LinuxMainViewModel(db, "/tmp/ulm-linux-vm-test")
+            {
+                SelectedDrive = new LinuxBlockDevice(stickDir, stickDir, 400_000_000L, "Test", true),
+            };
+
+            await vm.VerifyStickIntegrityAsync();
+
+            Assert.False(entry.HashMismatchDetected);
+            Assert.Equal(string.Format(LocalizationService.T(Str.Log_IsosVerifiedStatus), 1), vm.IntegrityStatus);
+            System.IO.Directory.Delete(stickDir, true);
+        }
+
+        [Fact]
+        public async System.Threading.Tasks.Task VerifyStickIntegrityAsync_MismatchedHash_SetsHashMismatchDetected()
+        {
+            var db = new FakeIsoDatabaseService();
+            var entry = new IsoEntry { Name = "Ubuntu 24.04 LTS", Category = "Einsteiger", Filename = "ubuntu.iso", Sha256 = new string('a', 64) };
+            db.Add(entry);
+            string stickDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"ulm-linux-integrity-{System.Guid.NewGuid():N}");
+            System.IO.Directory.CreateDirectory(stickDir);
+            CreateIsoSizedFile(System.IO.Path.Combine(stickDir, "ubuntu.iso"));
+
+            var vm = new LinuxMainViewModel(db, "/tmp/ulm-linux-vm-test")
+            {
+                SelectedDrive = new LinuxBlockDevice(stickDir, stickDir, 400_000_000L, "Test", true),
+            };
+
+            await vm.VerifyStickIntegrityAsync();
+
+            Assert.True(entry.HashMismatchDetected);
+            System.IO.Directory.Delete(stickDir, true);
+        }
+
+        [Fact]
         public void GitHubToken_LoadsFromIniOnConstruction()
         {
             string tempSettings = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"ulm-linux-ghtoken-{System.Guid.NewGuid():N}.ini");

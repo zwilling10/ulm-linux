@@ -57,6 +57,7 @@ namespace ULM.Linux.ViewModels
             CancelVentoyCommand    = new RelayCommand(() => PendingConfirmationMessage = null, () => PendingConfirmationMessage is not null);
             ClearLogCommand        = new RelayCommand(() => LogEntries.Clear());
             RunHealthCheckCommand  = new RelayCommand(() => _ = RunHealthCheckAsync(), () => !IsBusy && !HealthCheckActive);
+            VerifyIntegrityCommand = new RelayCommand(() => _ = VerifyStickIntegrityAsync(), () => SelectedDrive is not null && !IsBusy);
 
             _gitHubToken = IniService.Read(_settingsIniPath, "App", "GitHubToken", string.Empty);
             HttpService.Instance.GitHubToken = _gitHubToken;
@@ -133,6 +134,7 @@ namespace ULM.Linux.ViewModels
             RequestVentoyUpdateCommand.RaiseCanExecuteChanged();
             ConfirmVentoyCommand.RaiseCanExecuteChanged();
             RunHealthCheckCommand.RaiseCanExecuteChanged();
+            VerifyIntegrityCommand.RaiseCanExecuteChanged();
         }
 
         private int _downloadPercent;
@@ -154,6 +156,13 @@ namespace ULM.Linux.ViewModels
         {
             get => _copyStatus;
             private set { if (SetField(ref _copyStatus, value)) { OnPropertyChanged(nameof(HasAnyStatus)); OnPropertyChanged(nameof(StatusBarText)); AppendLog(value); } }
+        }
+
+        private string _integrityStatus = string.Empty;
+        public string IntegrityStatus
+        {
+            get => _integrityStatus;
+            private set { if (SetField(ref _integrityStatus, value)) { OnPropertyChanged(nameof(HasAnyStatus)); OnPropertyChanged(nameof(StatusBarText)); AppendLog(value); } }
         }
 
         private bool _secureBootEnabled;
@@ -263,7 +272,8 @@ namespace ULM.Linux.ViewModels
         /// <summary>Status-Tab: ob gerade irgendein Vorgang eine Statuszeile zu zeigen hat —
         /// steuert den Wechsel zwischen den drei Status-Zeilen und dem "Kein Vorgang aktiv."-Text.</summary>
         public bool HasAnyStatus =>
-            !string.IsNullOrEmpty(DownloadStatus) || !string.IsNullOrEmpty(CopyStatus) || !string.IsNullOrEmpty(VentoyStatus);
+            !string.IsNullOrEmpty(DownloadStatus) || !string.IsNullOrEmpty(CopyStatus)
+            || !string.IsNullOrEmpty(VentoyStatus) || !string.IsNullOrEmpty(IntegrityStatus);
 
         private string _gitHubToken = string.Empty;
         /// <summary>Optionales GitHub Personal Access Token — hebt nur das API-Limit für
@@ -317,11 +327,13 @@ namespace ULM.Linux.ViewModels
         public RelayCommand CancelVentoyCommand { get; }
         public RelayCommand ClearLogCommand { get; }
         public RelayCommand RunHealthCheckCommand { get; }
+        public RelayCommand VerifyIntegrityCommand { get; }
 
         /// <summary>Statusleisten-Text (Windows-Pendant: `StatusText`/`StatusLbl`) — zeigt die
         /// zuletzt geänderte der drei Vorgangs-Statuszeilen, sonst leer.</summary>
         public string StatusBarText =>
             !string.IsNullOrEmpty(VentoyStatus) ? VentoyStatus.Split('\n')[^1]
+            : !string.IsNullOrEmpty(IntegrityStatus) ? IntegrityStatus
             : !string.IsNullOrEmpty(CopyStatus) ? CopyStatus
             : DownloadStatus;
 
@@ -555,6 +567,64 @@ namespace ULM.Linux.ViewModels
             });
             await worker.RunAsync().ConfigureAwait(true);
             await tcs.Task.ConfigureAwait(true);
+        }
+
+        /// <summary>Windows-Pendant: MainViewModel.VerifyStickIntegrityAsync() (ViewModels/
+        /// MainViewModel.cs ~Zeile 736) — nutzt dieselben plattformneutralen Bausteine
+        /// (UsbService.ScanStickVerifiedAsync, IsoEntry.ComputeSha256Async/Sha256/
+        /// HashMismatchDetected). Vereinfacht um das dort vorhandene Stick-Update-Angebot
+        /// (IncompleteIsosOnStickDetected) und den separaten ActivityHistory-Verlauf — Linux nutzt
+        /// dafür bereits LogEntries/IntegrityStatus (siehe Phase A/B-1). Reagiert nicht auf
+        /// Abbruch (kein Cancel-Button in Phase A/B — Windows' Abbruch-Zweig daher bewusst
+        /// weggelassen, kein Verhaltensunterschied für den Normalfall).</summary>
+        public async Task VerifyStickIntegrityAsync()
+        {
+            if (SelectedDrive?.MountPoint is null || IsBusy) return;
+            string mountPoint = SelectedDrive.MountPoint;
+            string deviceNode = SelectedDrive.DeviceNode;
+
+            IsBusy = true;
+            DownloadPercent = 0;
+            IntegrityStatus = LocalizationService.T(Str.Log_CheckingIntegrity);
+            AppendLog(string.Format(LocalizationService.T(Str.Log_IntegrityCheckStarted), deviceNode));
+            try
+            {
+                // UsbService.Instance (Core, plattformneutral) — nicht das Linux-eigene _usbService-
+                // Feld (LinuxUsbService, nur lsblk-Geräteliste). Analog zu UsbService.UpdateVentoyMenu
+                // (statisch) bereits in CopySelectedToStickAsync genutzt.
+                var (found, _) = await UsbService.Instance.ScanStickVerifiedAsync(mountPoint, _db.Entries).ConfigureAwait(true);
+                var byFilename = new Dictionary<string, UsbService.StickIso>(StringComparer.OrdinalIgnoreCase);
+                foreach (UsbService.StickIso f in found)
+                    if (!byFilename.ContainsKey(f.Filename)) byFilename[f.Filename] = f;
+
+                int totalToCheck = _db.Entries.Count(e => !string.IsNullOrEmpty(e.Sha256) && byFilename.ContainsKey(e.Filename));
+                int mismatches = 0, checkedCount = 0;
+                foreach (IsoEntry entry in _db.Entries)
+                {
+                    if (string.IsNullOrEmpty(entry.Sha256) || !byFilename.TryGetValue(entry.Filename, out var stick)) continue;
+                    checkedCount++;
+                    DownloadPercent = totalToCheck > 0 ? (checkedCount * 100) / totalToCheck : 0;
+                    string actual = await IsoEntry.ComputeSha256Async(stick.FullPath).ConfigureAwait(true);
+                    if (string.IsNullOrEmpty(actual)) continue;
+                    bool mismatch = !string.Equals(actual, entry.Sha256, StringComparison.OrdinalIgnoreCase);
+                    entry.HashMismatchDetected = mismatch;
+                    if (mismatch) mismatches++;
+                }
+
+                IntegrityStatus = mismatches > 0
+                    ? string.Format(LocalizationService.T(Str.Log_HashMismatchesStatus), mismatches)
+                    : string.Format(LocalizationService.T(Str.Log_IsosVerifiedStatus), checkedCount);
+                AppendLog(string.Format(LocalizationService.T(Str.Log_IntegrityCheckDone), deviceNode, checkedCount, mismatches));
+            }
+            catch (Exception ex)
+            {
+                AppendLog(string.Format(LocalizationService.T(Str.Log_IntegrityCheckFailed), ex.Message));
+                IntegrityStatus = LocalizationService.T(Str.Log_ErrorStatus);
+            }
+            finally
+            {
+                IsBusy = false;
+            }
         }
 
         public async Task PollDrivesAsync()
