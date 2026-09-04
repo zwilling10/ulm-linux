@@ -1109,6 +1109,14 @@ namespace ULM.Infrastructure
             [Str.Settings_Btn_ChooseFolder]       = "Ordner wählen…",
             [Str.Settings_RestartConfirm_Title]   = "Neustart erforderlich",
             [Str.Settings_RestartConfirm_Message] = "Das Arbeitsverzeichnis wurde geändert. ULM muss neu gestartet werden, damit die Änderung wirksam wird. Jetzt neu starten?",
+
+            [Str.Linux_Help_StorageLocation_Body] = "Alle ISOs werden im gewählten Arbeitsverzeichnis gespeichert (Unterordner 'ISOs'). Standardmäßig liegt es unter ~/.local/share/ulm — über '⚙ Einstellungen → Arbeitsverzeichnis' lässt sich ein anderer Ordner wählen (wirkt nach einem Neustart).",
+            [Str.Linux_Help_InstallUpdateVentoy_Body] =
+                "⚠ NEUINSTALLATION löscht ALLE Daten auf dem Stick! Aktualisieren behält bestehende ISOs. " +
+                "Fragt per pkexec nach dem Administrator-Passwort und führt Ventoy2Disk.sh im Hintergrund " +
+                "aus — mit Fortschrittsanzeige und Protokoll im selben Fenster. Während die Installation " +
+                "läuft, pausiert ULM die automatische Laufwerkserkennung.",
+            [Str.Linux_Help_Color_Red_Body] = "URL nicht erreichbar — der Download-Server antwortet nicht. Erscheint nach einem URL-Check ('URLs prüfen').",
         };
 
         private static readonly Dictionary<Str, string> En = new()
@@ -2168,6 +2176,14 @@ namespace ULM.Infrastructure
             [Str.Settings_Btn_ChooseFolder]       = "Choose folder…",
             [Str.Settings_RestartConfirm_Title]   = "Restart required",
             [Str.Settings_RestartConfirm_Message] = "The working directory has changed. ULM needs to restart for this to take effect. Restart now?",
+
+            [Str.Linux_Help_StorageLocation_Body] = "All ISOs are stored in the chosen working directory (subfolder 'ISOs'). By default this is ~/.local/share/ulm — pick a different folder via '⚙ Settings → Working Directory' (takes effect after a restart).",
+            [Str.Linux_Help_InstallUpdateVentoy_Body] =
+                "⚠ REINSTALLING erases ALL data on the stick! Updating keeps existing ISOs. " +
+                "Asks for the administrator password via pkexec and runs Ventoy2Disk.sh in the " +
+                "background — with progress and log in the same window. While the installation runs, " +
+                "ULM pauses automatic drive detection.",
+            [Str.Linux_Help_Color_Red_Body] = "URL unreachable — the download server is not responding. Appears after a URL check ('Check URLs').",
         };
     }
 }

@@ -39,6 +39,9 @@ namespace ULM.Linux.Views
             await new SettingsDialog(_vm).ShowDialog(this);
         }
 
+        private async void BtnHelp_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e) =>
+            await new HelpDialog().ShowDialog(this);
+
         // DB-Gesundheitscheck selbst läuft komplett über RunHealthCheckCommand (MVVM-Binding in
         // MainWindow.axaml, braucht kein Fenster als Owner) — nur das Ergebnis-Dialog-Öffnen
         // danach braucht Code-behind (Owner-Fenster).

@@ -35,13 +35,10 @@
                 </StackPanel>
 
                 <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-                    <!-- Hilfe: sichtbar wie unter Windows, aber weiterhin deaktiviert — der
-                         Hilfe-Dialog existiert auf Linux noch nicht (spätere Phase). Einstellungen
-                         ist jetzt aktiv, siehe SettingsDialog. -->
                     <Button Classes="ghost-onbar" Content="{Binding SettingsLabel}" Width="140"
                             Margin="0,0,8,0" Click="BtnSettings_Click"/>
                     <Button Classes="ghost-onbar" Content="{Binding HelpLabel}" Width="80"
-                            IsEnabled="False" ToolTip.Tip="{Binding NotAvailableTooltip}"/>
+                            Click="BtnHelp_Click"/>
                 </StackPanel>
             </Grid>
         </Border>

@@ -560,5 +560,7 @@ namespace ULM.Infrastructure
 
         Settings_DialogTitle, Settings_Card_Language, Settings_Card_WorkDir, Settings_WorkDir_Hint,
         Settings_Btn_ChooseFolder, Settings_RestartConfirm_Title, Settings_RestartConfirm_Message,
+
+        Linux_Help_StorageLocation_Body, Linux_Help_InstallUpdateVentoy_Body, Linux_Help_Color_Red_Body,
     }
 }
