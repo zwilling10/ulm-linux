@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using Avalonia.Media;
 using ULM.Core.Models;
 using ULM.Infrastructure;
 
@@ -9,6 +10,14 @@ namespace ULM.Linux.ViewModels
     /// in der Distributionsspalte, siehe MainViewModel.IsSelected auf IsoEntryViewModel).</summary>
     public sealed class LinuxIsoRow : INotifyPropertyChanged
     {
+        private static readonly IBrush BrushHeader = new SolidColorBrush(Color.Parse("#EAF1F8"));
+        private static readonly IBrush BrushMid    = new SolidColorBrush(Color.Parse("#B8C9DC"));
+        private static readonly IBrush BrushDim    = new SolidColorBrush(Color.Parse("#8BA3BE"));
+        private static readonly IBrush BrushGreen  = new SolidColorBrush(Color.Parse("#2ECC71"));
+        private static readonly IBrush BrushAmber  = new SolidColorBrush(Color.Parse("#F39C12"));
+        private static readonly IBrush BrushRed    = new SolidColorBrush(Color.Parse("#E74C3C"));
+        private static readonly IBrush BrushTeal   = new SolidColorBrush(Color.Parse("#1ABC9C"));
+
         private readonly string _downloadDirectory;
 
         public LinuxIsoRow(IsoEntry entry, string downloadDirectory)
@@ -21,7 +30,42 @@ namespace ULM.Linux.ViewModels
 
         public IsoEntry Entry { get; }
 
-        public string Name => Entry.Name;
+        /// <summary>Windows-Pendant: IsoEntryViewModel.BuildDisplayName() (ViewModels/
+        /// IsoViewModels.cs) — Nutzerfund (2026-09-04): "bei URLs prüfen fehlt die Bestätigung
+        /// für die einzelnen Distros mit einem grünen Häkchen". 📥-Importiert-Präfix und
+        /// 🆕-Update-Tag kostenlos mitgenommen (dieselben IsoEntry-Felder sind bereits über den
+        /// automatischen Start-Scan befüllt), NICHT mitgenommen: der laufende Download-Status-
+        /// Suffix (eigene Statuszeilen auf Linux, siehe DownloadStatus/StatusBarText).</summary>
+        public string Name
+        {
+            get
+            {
+                string prefix = Entry.ImportedFromStick ? "📥 " : string.Empty;
+                string urlTag = Entry.UrlChecked ? (Entry.UrlOk ? " 🌐✓" : " 🌐✗") : string.Empty;
+                string verTag = Entry.HasResolvedUpdate ? $"  🆕 v{Entry.RemoteVersion}" : string.Empty;
+                return $"{prefix}{Entry.Name}{urlTag}{verTag}";
+            }
+        }
+
+        /// <summary>Windows-Pendant: IsoEntryViewModel.GetForeground(). UsbStatus.Ok/Outdated-
+        /// Zweige bleiben inaktiv (auf Linux bislang immer UsbStatus.Unknown, kein Stick-Scan
+        /// füllt das Feld — siehe Kommentar bei <see cref="UsbStatus"/>), keine erfundene Logik.</summary>
+        public IBrush ForegroundBrush
+        {
+            get
+            {
+                bool isLocal = Entry.IsLocallyAvailable(_downloadDirectory);
+                if (Entry.ImportedFromStick) return BrushTeal;
+                if (Entry.UsbStatus == Core.Models.UsbStatus.Ok) return BrushGreen;
+                if (Entry.HasResolvedUpdate || Entry.UsbStatus == Core.Models.UsbStatus.Outdated) return BrushAmber;
+                if (Entry.UrlChecked && !Entry.UrlOk) return BrushRed;
+                if (!Entry.UrlChecked && string.IsNullOrEmpty(Entry.Url) && string.IsNullOrEmpty(Entry.GithubRepo)) return BrushDim;
+                if (isLocal) return BrushGreen;
+                if (Entry.HasOnlineVersionInfo) return BrushMid;
+                return BrushHeader;
+            }
+        }
+
         public string CategoryKey => Entry.Category;
         public string CategoryLabel => Constants.CategoryLabel(Entry.Category);
 
@@ -77,6 +121,8 @@ namespace ULM.Linux.ViewModels
         /// z.B. nach einem Download-Resolve ändert, ohne dass ApplyFilter() neu aufgerufen wird.</summary>
         public void RaiseDisplayChanged()
         {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Name)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ForegroundBrush)));
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SizeLabel)));
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(StatusLabel)));
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LocalStatus)));
