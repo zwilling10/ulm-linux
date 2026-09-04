@@ -19,7 +19,21 @@ namespace ULM.Linux.Views
         {
             if (_vm is not null) _vm.HealthCheckCompleted -= OnHealthCheckCompleted;
             _vm = DataContext as LinuxMainViewModel;
-            if (_vm is not null) _vm.HealthCheckCompleted += OnHealthCheckCompleted;
+            if (_vm is not null)
+            {
+                _vm.HealthCheckCompleted += OnHealthCheckCompleted;
+                // Windows-Pendant: MainWindow.xaml.cs' `_vm.ConfirmSlowDownload = (name, host) =>
+                // MessageBox.Show(...)`. DownloadWorker ruft das synchron von einem Hintergrund-
+                // Thread (dem jeweils langsamen Download-Slot) auf — InvokeAsync(Func<Task<bool>>)
+                // marschalliert Öffnen+Warten auf den UI-Thread, GetAwaiter().GetResult() blockiert
+                // dabei nur den aufrufenden Slot-Thread, nicht den UI-Thread selbst (der pumpt die
+                // Dialog-Nachrichtenschleife währenddessen normal weiter).
+                _vm.ConfirmSlowDownload = (name, host) =>
+                    Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => ConfirmDialog.ShowAsync(this,
+                        LocalizationService.T(Str.Msg_SlowDownload_Title),
+                        string.Format(LocalizationService.T(Str.Msg_SlowDownload_Body), name, host)))
+                    .GetAwaiter().GetResult();
+            }
         }
 
         // Bewusst Code-behind statt reines MVVM-Command (gleiches Muster wie Windows'
@@ -62,11 +76,11 @@ namespace ULM.Linux.Views
             if (dlg.AnyEntryAdded) _vm.RunHealthCheckCommand.Execute(null);
         }
 
-        // Windows-Vorbild: MainWindow.xaml.cs BtnSearch_Click. Bewusst OHNE den dortigen
-        // Auto-Download-Teil (ToDownload -> sofortiger Mehrfach-Download) — Linux' DownloadCommand
-        // kennt nur SelectedRow (Single-Select), ein Massen-Download über IsSelected-Zeilen ist
-        // kein bestehendes Feature (siehe Phase-A/B-4-Plan). Übernommene "sofort herunterladen"-
-        // Einträge werden stattdessen nur in der Hauptliste vorausgewählt.
+        // Windows-Vorbild: MainWindow.xaml.cs BtnSearch_Click. Seit der Warteschlangen-Phase
+        // (2026-09-04) markiert dies die übernommenen "sofort herunterladen"-Einträge nur als
+        // IsSelected (angehakt) — ein Klick auf "Herunterladen" lädt sie dann als echte
+        // Mehrfach-Warteschlange über DownloadQueueAsync(), kein separater Auto-Download-Zweig
+        // mehr nötig wie unter Windows.
         private async void BtnSearchIso_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
         {
             if (_vm is null) return;

@@ -562,5 +562,10 @@ namespace ULM.Infrastructure
         Settings_Btn_ChooseFolder, Settings_RestartConfirm_Title, Settings_RestartConfirm_Message,
 
         Linux_Help_StorageLocation_Body, Linux_Help_InstallUpdateVentoy_Body, Linux_Help_Color_Red_Body,
+
+        Linux_Log_StickScanFailed,
+
+        Linux_Download_Slots, Linux_Download_CopyAfter, Linux_Download_DeleteAfter,
+        Linux_Download_FasterMirrorTooltip,
     }
 }

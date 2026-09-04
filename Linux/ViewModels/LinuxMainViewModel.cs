@@ -16,27 +16,20 @@ namespace ULM.Linux.ViewModels
 
     public sealed class LinuxMainViewModel : ViewModelBase
     {
-        public delegate Task<bool> DownloadFunc(string url, string destPath, IProgress<(int Percent, string Detail)>? progress, CancellationToken token);
-        public delegate Task<(string Version, string Url, string Filename)> ResolveFunc(IsoEntry entry);
-
         private readonly IIsoDatabaseService _db;
         private readonly string _downloadDirectory;
         private readonly string _settingsIniPath;
-        private readonly DownloadFunc _download;
-        private readonly ResolveFunc _resolve;
         private readonly LinuxUsbService _usbService;
         private readonly VentoyInstallService _ventoyInstallService;
 
         public LinuxMainViewModel(
             IIsoDatabaseService db, string downloadDirectory,
-            string? settingsIniPath = null, DownloadFunc? download = null, ResolveFunc? resolve = null,
+            string? settingsIniPath = null,
             LinuxUsbService? usbService = null, VentoyInstallService? ventoyInstallService = null)
         {
             _db = db;
             _downloadDirectory = downloadDirectory;
             _settingsIniPath = settingsIniPath ?? LinuxPaths.SettingsIni;
-            _download = download ?? ((url, dest, progress, token) => HttpService.Instance.DownloadAsync(url, dest, progress, token));
-            _resolve = resolve ?? (entry => HttpService.Instance.ResolveLatestAsync(entry));
             _usbService = usbService ?? new LinuxUsbService();
             _ventoyInstallService = ventoyInstallService ?? new VentoyInstallService();
 
@@ -49,7 +42,13 @@ namespace ULM.Linux.ViewModels
 
             RefreshCommand        = new RelayCommand(Refresh);
             ToggleLanguageCommand = new RelayCommand(ToggleLanguage);
-            DownloadCommand        = new RelayCommand(() => _ = DownloadSelectedAsync(), () => SelectedRow is not null && !IsBusy);
+            // CanExecute prüft bewusst nicht mehr "SelectedRow is not null" — die Warteschlange
+            // (Windows-Pendant: GetSelectedEntries()) kann jetzt auch nur aus angehakten Zeilen
+            // bestehen, ohne dass eine davon zusätzlich als SelectedRow markiert ist. Eine leere
+            // Warteschlange meldet DownloadQueueAsync() selbst über DownloadStatus zurück.
+            DownloadCommand        = new RelayCommand(() => _ = DownloadQueueAsync(), () => !IsBusy);
+            CancelDownloadCommand  = new RelayCommand(() => _activeDownloadWorker?.Cancel(), () => IsBusy && _activeDownloadWorker is not null);
+            RequestFasterMirrorCommand = new RelayCommand<string>(name => { if (name is not null) _activeDownloadWorker?.RequestFasterMirror(name); });
             CopyToStickCommand     = new RelayCommand(() => _ = CopySelectedToStickAsync(), () => SelectedRow is not null && SelectedDrive is not null && !IsBusy);
             RequestVentoyInstallCommand = new RelayCommand(() => RequestVentoyConfirmation(updateMode: false), () => SelectedDrive is not null && !IsBusy);
             RequestVentoyUpdateCommand  = new RelayCommand(() => RequestVentoyConfirmation(updateMode: true),  () => SelectedDrive is not null && !IsBusy);
@@ -131,6 +130,7 @@ namespace ULM.Linux.ViewModels
         private void RaiseAllCommandsCanExecuteChanged()
         {
             DownloadCommand.RaiseCanExecuteChanged();
+            CancelDownloadCommand.RaiseCanExecuteChanged();
             CopyToStickCommand.RaiseCanExecuteChanged();
             RequestVentoyInstallCommand.RaiseCanExecuteChanged();
             RequestVentoyUpdateCommand.RaiseCanExecuteChanged();
@@ -154,6 +154,41 @@ namespace ULM.Linux.ViewModels
             get => _downloadStatus;
             private set { if (SetField(ref _downloadStatus, value)) { OnPropertyChanged(nameof(HasAnyStatus)); OnPropertyChanged(nameof(StatusBarText)); AppendLog(value); } }
         }
+
+        private DownloadWorker? _activeDownloadWorker;
+
+        private int _downloadSlots = 1;
+        /// <summary>Windows-Pendant: DownloadSlotsDialog-Auswahl — hier statt eines eigenen Modal-
+        /// Dialogs ein NumericUpDown direkt in der Aktionsleiste (schlanker, gleiche Funktion).</summary>
+        public int DownloadSlots
+        {
+            get => _downloadSlots;
+            set => SetField(ref _downloadSlots, Math.Clamp(value, 1, Constants.MaxParallelSlots));
+        }
+
+        public int MaxDownloadSlots => Constants.MaxParallelSlots;
+
+        private bool _copyAfterDownload;
+        /// <summary>Windows-Pendant: die "Ja"-Antwort auf die YesNoCancel-MessageBox "Nach dem
+        /// Download auf den Stick kopieren?" — hier als Checkbox statt Dialogkette, siehe Plan.</summary>
+        public bool CopyAfterDownload
+        {
+            get => _copyAfterDownload;
+            set => SetField(ref _copyAfterDownload, value);
+        }
+
+        private bool _deleteAfterCopy;
+        public bool DeleteAfterCopy
+        {
+            get => _deleteAfterCopy;
+            set => SetField(ref _deleteAfterCopy, value);
+        }
+
+        /// <summary>Windows-Pendant: MainWindow.xaml.cs' `_vm.ConfirmSlowDownload = (name, host) =>
+        /// MessageBox.Show(...)`. Die View setzt diesen Delegate (braucht ein Fenster als Owner);
+        /// DownloadQueueAsync ruft ihn über worker.ConfirmSlowDownloadAnyway synchron vom
+        /// Hintergrund-Thread des jeweiligen Download-Slots auf.</summary>
+        public Func<string, string, bool>? ConfirmSlowDownload;
 
         private string _copyStatus = string.Empty;
         public string CopyStatus
@@ -198,11 +233,29 @@ namespace ULM.Linux.ViewModels
         public int OnlineScanPercent
         {
             get => _onlineScanPercent;
-            private set => SetField(ref _onlineScanPercent, value);
+            private set { if (SetField(ref _onlineScanPercent, value)) OnPropertyChanged(nameof(ScanHintFullText)); }
         }
 
-        public bool ScanInProgress => OnlineScanActive;
-        public string ScanHintText => OnlineScanActive ? LocalizationService.T(Str.Main_ScanHint_Online) : string.Empty;
+        // ── Automatische USB-Stick-Erkennung (Windows-Pendant: MainViewModel.UsbScanActive) —
+        // läuft, sobald PollDrivesAsync einen Ventoy-Stick neu auswählt (siehe ScanConnectedStickAsync).
+        // Kein Prozentwert (Windows nutzt hier ebenfalls eine unbestimmte ProgressBar), daher kein
+        // eigenes *Percent-Feld. ──
+        private bool _usbScanActive;
+        public bool UsbScanActive
+        {
+            get => _usbScanActive;
+            private set { if (SetField(ref _usbScanActive, value)) { OnPropertyChanged(nameof(ScanInProgress)); OnPropertyChanged(nameof(ScanHintText)); OnPropertyChanged(nameof(ScanHintFullText)); } }
+        }
+
+        public bool ScanInProgress => OnlineScanActive || UsbScanActive;
+        public string ScanHintText => OnlineScanActive ? LocalizationService.T(Str.Main_ScanHint_Online)
+                                     : UsbScanActive     ? LocalizationService.T(Str.Main_ScanHint_Usb)
+                                     : string.Empty;
+
+        /// <summary>Fertig formatierter Kopfzeilen-Hinweis inkl. Prozentangabe NUR während des
+        /// Online-Scans (der Stick-Scan hat keinen Fortschrittswert, daher dort kein "(NN%)"-Anhang,
+        /// der sonst einen veralteten Online-Scan-Prozentwert fälschlich mit anzeigen würde).</summary>
+        public string ScanHintFullText => OnlineScanActive ? $"{ScanHintText} ({OnlineScanPercent}%)" : ScanHintText;
 
         private bool _secureBootEnabled;
         public bool SecureBootEnabled
@@ -265,6 +318,11 @@ namespace ULM.Linux.ViewModels
         public string StatusCurrentOperationLabel => LocalizationService.T(Str.Linux_Status_CurrentOperation);
         public string StatusIdleLabel         => LocalizationService.T(Str.Linux_Status_Idle);
         public string ActionDownloadLabel     => LocalizationService.T(Str.Linux_Actions_Download);
+        public string ActionCancelDownloadLabel => LocalizationService.T(Str.Db_Btn_Cancel);
+        public string DownloadSlotsLabel      => LocalizationService.T(Str.Linux_Download_Slots);
+        public string CopyAfterDownloadLabel  => LocalizationService.T(Str.Linux_Download_CopyAfter);
+        public string DeleteAfterCopyLabel    => LocalizationService.T(Str.Linux_Download_DeleteAfter);
+        public string FasterMirrorTooltip     => LocalizationService.T(Str.Linux_Download_FasterMirrorTooltip);
         public string ActionCheckUpdatesLabel => LocalizationService.T(Str.Linux_Actions_CheckUpdates);
         public string ActionCheckUrlsLabel    => LocalizationService.T(Str.Linux_Actions_CheckUrls);
         public string ActionSearchIsoLabel    => LocalizationService.T(Str.Linux_Actions_SearchIso);
@@ -360,6 +418,8 @@ namespace ULM.Linux.ViewModels
         public RelayCommand RefreshCommand { get; }
         public RelayCommand ToggleLanguageCommand { get; }
         public RelayCommand DownloadCommand { get; }
+        public RelayCommand CancelDownloadCommand { get; }
+        public RelayCommand<string> RequestFasterMirrorCommand { get; }
         public RelayCommand CopyToStickCommand { get; }
         public RelayCommand RequestVentoyInstallCommand { get; }
         public RelayCommand RequestVentoyUpdateCommand { get; }
@@ -430,54 +490,113 @@ namespace ULM.Linux.ViewModels
             _selectedCategory = Categories.First(c => c.Key == previousKey);
         }
 
-        public async Task DownloadSelectedAsync()
+        /// <summary>Windows-Pendant: MainViewModel.StartDownload() + DownloadWorker (Core/Workers/
+        /// Workers.cs, bereits plattformneutral in ULM.Linux.csproj verlinkt, kein Neuschreiben).
+        /// Ersetzt das bisherige DownloadSelectedAsync (nur Einzel-Download über einen injizierten
+        /// Test-Delegate) durch den echten, mehrfähigen Worker: Warteschlange (angehakte Zeilen,
+        /// Fallback SelectedRow), parallele Slots, Mirror-Fallback/-Race, "schneller"-Anfrage,
+        /// Bestätigung bei dauerhaft langsamem Download, Abbrechen. Die Kopier-Pipeline danach läuft
+        /// bewusst SEQUENZIELL (erst alle Downloads fertig, dann Batch-Kopie) statt wie unter
+        /// Windows als Channel-basiertes Streaming (Kopie startet dort schon für einzelne fertige
+        /// Downloads, während andere noch laufen) — funktional gleichwertig für alle 7 in der
+        /// Lückenanalyse genannten Punkte, nur ohne diese Überlappungs-Optimierung (siehe
+        /// Brainstorming 2026-09-04, bewusst zurückgestellt).</summary>
+        public async Task DownloadQueueAsync()
         {
-            if (SelectedRow is null || IsBusy) return;
-            IsoEntry entry = SelectedRow.Entry;
+            if (IsBusy) return;
+            List<IsoEntry> queue = _db.Entries.Where(e => e.IsSelected).ToList();
+            if (queue.Count == 0 && SelectedRow is not null) queue.Add(SelectedRow.Entry);
+            if (queue.Count == 0)
+            {
+                DownloadStatus = LocalizationService.T(Str.Msg_SelectAtLeastOne);
+                return;
+            }
+
+            string? mountPoint = SelectedDrive?.MountPoint;
+            bool copyAfter = mountPoint is not null && CopyAfterDownload;
+            bool deleteAfter = copyAfter && DeleteAfterCopy;
 
             IsBusy = true;
             DownloadPercent = 0;
             DownloadStatus = string.Empty;
-            try
+            AppendLog(string.Format(LocalizationService.T(Str.Log_DownloadStarted), queue.Count, DownloadSlots)
+                + (mountPoint is null ? "" : string.Format(LocalizationService.T(Str.Log_ToDriveSuffix), mountPoint)));
+            foreach (var e in queue) AppendLog(string.Format(LocalizationService.T(Str.Log_QueueItem), e.Name));
+
+            var worker = new DownloadWorker(queue, DownloadSlots, _downloadDirectory, _db, mountPoint ?? string.Empty, copyAfter, deleteAfter);
+            _activeDownloadWorker = worker;
+            CancelDownloadCommand.RaiseCanExecuteChanged();
+
+            worker.LogMessage += msg => Avalonia.Threading.Dispatcher.UIThread.Post(() => AppendLog(msg));
+            // _ui.Invoke-Äquivalent: blockiert nur den EINEN Hintergrund-Slot, der gerade langsam
+            // ist, bis der Anwender geantwortet hat — die anderen parallelen Slots laufen weiter
+            // (siehe DownloadWorker.ConfirmSlowDownloadAnyway-Kommentar in Workers.cs).
+            worker.ConfirmSlowDownloadAnyway = (name, host) =>
+                Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => ConfirmSlowDownload?.Invoke(name, host) ?? false).GetAwaiter().GetResult();
+            worker.OverallProgress += (pct, detail) => Avalonia.Threading.Dispatcher.UIThread.Post(() => { DownloadPercent = pct; DownloadStatus = detail; });
+            worker.SlotUpdated += p => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                UpdateRowLiveStatus(p.IsoName, $"{p.Percent}% {p.Status}", p.CanRequestFasterMirror));
+            worker.ItemCompleted += (entry, success) =>
             {
-                // Viele Katalog-Einträge haben keine feste Url/Mirror-Konfiguration, sondern werden
-                // erst hier zur Laufzeit aufgelöst (GitHub-Releases, versionsabhängige Downloadseiten
-                // — siehe Core/Services/HttpService.DistroResolvers.cs). Ohne diesen Schritt liefert
-                // AllDownloadUrls() für die meisten Einträge nichts (Nutzerfund: "Keine Download-URL
-                // hinterlegt" bei praktisch jeder Distro). Gleiches Muster wie DownloadWorker in
-                // Core/Workers/Workers.cs.
-                var (version, resolvedUrl, resolvedFilename) = await _resolve(entry).ConfigureAwait(true);
-                if (!string.IsNullOrWhiteSpace(version)) entry.RemoteVersion = version;
-                if (!string.IsNullOrWhiteSpace(resolvedFilename)) entry.Filename = resolvedFilename;
+                if (success) Avalonia.Threading.Dispatcher.UIThread.Post(() => entry.IsSelected = false);
+            };
 
-                var urls = entry.AllDownloadUrls(resolvedUrl).ToList();
-                if (urls.Count == 0)
-                {
-                    DownloadStatus = LocalizationService.T(Str.Linux_Download_NoUrl);
-                    return;
-                }
+            var tcs = new TaskCompletionSource<(int Ok, int Failed)>();
+            worker.Completed += (ok, failed, _) => Avalonia.Threading.Dispatcher.UIThread.Post(() => tcs.TrySetResult((ok, failed)));
+            await worker.RunAsync().ConfigureAwait(true);
+            var (okCount, failedCount) = await tcs.Task.ConfigureAwait(true);
+            _db.Save();
 
-                string destPath = System.IO.Path.Combine(_downloadDirectory, entry.Filename);
-                var progress = new Progress<(int Percent, string Detail)>(p =>
-                {
-                    DownloadPercent = p.Percent;
-                    DownloadStatus  = p.Detail;
-                });
-
-                bool ok = false;
-                foreach (string candidate in urls)
-                {
-                    ok = await _download(candidate, destPath, progress, CancellationToken.None).ConfigureAwait(true);
-                    if (ok) break;
-                }
-
-                DownloadStatus = ok ? LocalizationService.T(Str.Row_Local) : LocalizationService.T(Str.Linux_Download_Failed);
-            }
-            finally
+            int copyOk = 0, copyFailed = 0;
+            if (copyAfter && okCount > 0 && mountPoint is not null)
             {
-                IsBusy = false;
-                ApplyFilter();
+                var toCopy = queue.Where(e => e.IsLocallyAvailable(_downloadDirectory)).ToList();
+                (copyOk, copyFailed) = await RunCopyBatchAsync(toCopy, mountPoint, deleteAfter).ConfigureAwait(true);
             }
+
+            _activeDownloadWorker = null;
+            IsBusy = false;
+            ApplyFilter();
+            DownloadStatus = BuildDownloadSummary(okCount, failedCount, copyAfter, copyOk, copyFailed, mountPoint);
+            CancelDownloadCommand.RaiseCanExecuteChanged();
+        }
+
+        /// <summary>Windows-Pendant: MainViewModel.StartCopyToStick()/CopyToUsbWorker-Verdrahtung —
+        /// läuft hier NACH DownloadQueueAsync() statt parallel dazu, siehe dortiger Kommentar.</summary>
+        private Task<(int Ok, int Failed)> RunCopyBatchAsync(List<IsoEntry> toCopy, string mountPoint, bool deleteAfter)
+        {
+            var tcs = new TaskCompletionSource<(int, int)>();
+            if (toCopy.Count == 0) { tcs.SetResult((0, 0)); return tcs.Task; }
+
+            var worker = new CopyToUsbWorker(toCopy, mountPoint, false, _downloadDirectory);
+            worker.Progress += (pct, detail) => Avalonia.Threading.Dispatcher.UIThread.Post(() => { DownloadPercent = pct; CopyStatus = detail; });
+            worker.FileProgress += (name, pct, status) => Avalonia.Threading.Dispatcher.UIThread.Post(() => UpdateRowLiveStatus(name, $"{pct}% {status}", false));
+            worker.Completed += (_, copiedCount, _, message) => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            {
+                CopyStatus = message;
+                UsbService.UpdateVentoyMenu(mountPoint, _db.Entries);
+                if (deleteAfter)
+                    foreach (var e in toCopy)
+                        IsoEntry.TryDelete(System.IO.Path.Combine(_downloadDirectory, e.Filename), line => AppendLog(line));
+                _db.Save();
+                tcs.TrySetResult((copiedCount, toCopy.Count - copiedCount));
+            });
+            _ = worker.RunAsync();
+            return tcs.Task;
+        }
+
+        private void UpdateRowLiveStatus(string isoName, string status, bool canRequestFasterMirror) =>
+            Rows.FirstOrDefault(r => r.Entry.Name == isoName)?.SetLiveStatus(status, canRequestFasterMirror);
+
+        private static string BuildDownloadSummary(int ok, int failed, bool copyAfter, int copyOk, int copyFailed, string? mountPoint)
+        {
+            if (ok == 0 && !copyAfter) return LocalizationService.T(Str.Log_NoDownloadsStatus);
+            if (copyAfter && mountPoint is not null)
+                return copyOk > 0
+                    ? string.Format(LocalizationService.T(Str.Log_DownloadedAndCopiedStatus), copyOk, mountPoint)
+                    : string.Format(LocalizationService.T(Str.Log_SomeFailedStatus), copyFailed + failed);
+            string summary = string.Format(LocalizationService.T(Str.Log_DownloadedCountStatus), ok, ok + failed);
+            return failed > 0 ? summary + string.Format(LocalizationService.T(Str.Log_FailedSuffix), failed) : summary;
         }
 
         public void ToggleLanguage()
@@ -754,6 +873,17 @@ namespace ULM.Linux.ViewModels
             }
         }
 
+        private string? _lastScannedDeviceNode;
+
+        /// <summary>Nutzerfund (2026-09-04): "automatische USB-Stick-Erkennung" fehlte — bisher
+        /// musste der Stick manuell aus dem Dropdown gewählt werden, "Auf dem Stick" blieb immer
+        /// "-" (siehe LinuxIsoRow.UsbStatus-Kommentar). Wählt jetzt automatisch einen erkannten
+        /// Stick aus (bevorzugt einen bereits eingerichteten Ventoy-Stick) und löst bei jedem
+        /// NEU ausgewählten Ventoy-Stick automatisch einen Scan aus (Windows-Pendant:
+        /// OnNewDriveInserted → ScanUsbStickAsync). Bewusst NICHT Teil dieser Phase (spätere
+        /// Mini-Phasen, siehe Brainstorming): automatisches Ventoy-Einrichten bei Nicht-Ventoy-
+        /// Sticks, "veraltet gefunden → automatisch nachkopieren"-Angebot, sowie die drei
+        /// Windows-Dialoge für unbekannte/doppelte/neuere Stick-ISOs.</summary>
         public async Task PollDrivesAsync()
         {
             var current = await _usbService.ListRemovableDevicesAsync().ConfigureAwait(true);
@@ -763,8 +893,54 @@ namespace ULM.Linux.ViewModels
             foreach (var d in current) Drives.Add(d);
 
             SelectedDrive = selectedNode is null
-                ? null
+                ? Drives.FirstOrDefault(d => d.IsVentoyInstalled) ?? Drives.FirstOrDefault()
                 : Drives.FirstOrDefault(d => d.DeviceNode == selectedNode);
+
+            if (SelectedDrive is null) { _lastScannedDeviceNode = null; return; }
+            if (SelectedDrive.IsVentoyInstalled && SelectedDrive.MountPoint is not null
+                && SelectedDrive.DeviceNode != _lastScannedDeviceNode && !UsbScanActive && !IsBusy)
+            {
+                _lastScannedDeviceNode = SelectedDrive.DeviceNode;
+                _ = ScanConnectedStickAsync(SelectedDrive.MountPoint);
+            }
         }
+
+        /// <summary>Windows-Pendant: MainViewModel.ScanUsbStickAsync()/ApplyStickResults() —
+        /// hier bewusst nur der Kernteil (Ok/Veraltet/Fehlend pro Eintrag), siehe PollDrivesAsync-
+        /// Kommentar für die absichtlich zurückgestellten Teile.</summary>
+        private async Task ScanConnectedStickAsync(string mountPoint)
+        {
+            UsbScanActive = true;
+            try
+            {
+                var (found, _) = await UsbService.Instance.ScanStickVerifiedAsync(mountPoint, _db.Entries).ConfigureAwait(true);
+                ApplyStickResults(found);
+                ApplyFilter();
+            }
+            catch (Exception ex)
+            {
+                AppendLog(string.Format(LocalizationService.T(Str.Linux_Log_StickScanFailed), ex.Message));
+            }
+            finally
+            {
+                UsbScanActive = false;
+            }
+        }
+
+        private void ApplyStickResults(IReadOnlyList<UsbService.StickIso> found)
+        {
+            var byFn = new Dictionary<string, UsbService.StickIso>(StringComparer.OrdinalIgnoreCase);
+            foreach (var f in found) if (!byFn.ContainsKey(f.Filename)) byFn[f.Filename] = f;
+            foreach (var e in _db.Entries)
+            {
+                if (!string.IsNullOrEmpty(e.Filename) && byFn.TryGetValue(e.Filename, out var exact))
+                { e.UsbStatus = Core.Models.UsbStatus.Ok; e.UsbSize = FormatGb(exact.Size); continue; }
+                var other = found.FirstOrDefault(f => DistroMatcher.IsSameDistroDifferentVersion(e.Filename, f.Filename));
+                if (other is not null) { e.UsbStatus = Core.Models.UsbStatus.Outdated; e.UsbSize = FormatGb(other.Size); }
+                else { e.UsbStatus = Core.Models.UsbStatus.Missing; e.UsbSize = string.Empty; }
+            }
+        }
+
+        private static string FormatGb(long bytes) => $"{bytes / 1_073_741_824.0:F2} GB";
     }
 }

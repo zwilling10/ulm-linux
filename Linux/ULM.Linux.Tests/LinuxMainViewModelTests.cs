@@ -85,60 +85,42 @@ namespace ULM.Linux.Tests
             System.IO.File.Delete(tempSettings);
         }
 
-        private static LinuxMainViewModel.ResolveFunc FakeResolve(string version, string url, string filename) =>
-            entry => System.Threading.Tasks.Task.FromResult((version, url, filename));
+        // DownloadQueueAsync() nutzt seit der Warteschlange/Parallelität/Pipeline-Phase (2026-09-04)
+        // den echten, plattformneutralen DownloadWorker (Core/Workers/Workers.cs) statt eines
+        // injizierbaren Test-Delegates — wie beim Windows-Pendant MainViewModel.StartDownload()
+        // (siehe ULM.Tests/DownloadWorkerTests.cs, testet dort ebenfalls nur die reine
+        // Worker-Logik, nicht den vollen netzwerkbehafteten Ablauf). Die folgenden Tests decken
+        // deshalb die davor liegende, netzwerkfreie Auswahl-/Leerlauf-Logik ab statt eines echten
+        // Downloads.
 
         [Fact]
-        public async System.Threading.Tasks.Task DownloadCommand_NoUrl_SetsNoUrlStatusAndDoesNotCallDownload()
+        public async System.Threading.Tasks.Task DownloadQueueAsync_NothingSelected_SetsSelectAtLeastOneStatus()
         {
-            var db = BuildDb();
-            bool downloadCalled = false;
-            var vm = new LinuxMainViewModel(db, "/tmp/ulm-linux-vm-test", null,
-                (url, dest, progress, token) => { downloadCalled = true; return System.Threading.Tasks.Task.FromResult(true); },
-                FakeResolve("", "", ""));
-            vm.SelectedRow = vm.Rows.First();
+            var vm = new LinuxMainViewModel(BuildDb(), "/tmp/ulm-linux-vm-test");
 
-            await vm.DownloadSelectedAsync();
+            await vm.DownloadQueueAsync();
 
-            Assert.False(downloadCalled);
-            Assert.Equal(LocalizationService.T(Str.Linux_Download_NoUrl), vm.DownloadStatus);
-        }
-
-        [Fact]
-        public async System.Threading.Tasks.Task DownloadCommand_WithUrl_CallsDownloadAndReportsProgress()
-        {
-            var db = BuildDb();
-            var vm = new LinuxMainViewModel(db, "/tmp/ulm-linux-vm-test", null,
-                async (url, dest, progress, token) =>
-                {
-                    // Progress<T>.Report marshalt ueber SynchronizationContext.Current (hier: keiner
-                    // im Testkontext) per ThreadPool.QueueUserWorkItem, feuert also asynchron — ein
-                    // kurzer Delay laesst den Callback vor der folgenden Assertion durchlaufen.
-                    progress?.Report((50, "50%"));
-                    await System.Threading.Tasks.Task.Delay(50);
-                    return true;
-                },
-                FakeResolve("24.04", "https://example.invalid/ubuntu.iso", "ubuntu.iso"));
-            vm.SelectedRow = vm.Rows.First(r => r.Name == "Ubuntu 24.04 LTS");
-
-            await vm.DownloadSelectedAsync();
-
-            Assert.Equal(50, vm.DownloadPercent);
+            Assert.Equal(LocalizationService.T(Str.Msg_SelectAtLeastOne), vm.DownloadStatus);
             Assert.False(vm.IsBusy);
         }
 
         [Fact]
-        public async System.Threading.Tasks.Task DownloadCommand_AllUrlsFail_SetsFailedStatus()
+        public void DownloadSlots_ClampedToValidRange()
         {
-            var db = BuildDb();
-            var vm = new LinuxMainViewModel(db, "/tmp/ulm-linux-vm-test", null,
-                (url, dest, progress, token) => System.Threading.Tasks.Task.FromResult(false),
-                FakeResolve("24.04", "https://example.invalid/ubuntu.iso", "ubuntu.iso"));
-            vm.SelectedRow = vm.Rows.First(r => r.Name == "Ubuntu 24.04 LTS");
+            var vm = new LinuxMainViewModel(BuildDb(), "/tmp/ulm-linux-vm-test");
 
-            await vm.DownloadSelectedAsync();
+            vm.DownloadSlots = 0;
+            Assert.Equal(1, vm.DownloadSlots);
 
-            Assert.Equal(LocalizationService.T(Str.Linux_Download_Failed), vm.DownloadStatus);
+            vm.DownloadSlots = 999;
+            Assert.Equal(vm.MaxDownloadSlots, vm.DownloadSlots);
+        }
+
+        [Fact]
+        public void CancelDownloadCommand_DisabledWithoutRunningDownload()
+        {
+            var vm = new LinuxMainViewModel(BuildDb(), "/tmp/ulm-linux-vm-test");
+            Assert.False(vm.CancelDownloadCommand.CanExecute(null));
         }
 
         [Fact]

@@ -69,6 +69,7 @@
     <Compile Include="..\Core\Services\HttpService.DistroResolvers.cs" Link="Core\Services\HttpService.DistroResolvers.cs" />
     <Compile Include="..\Core\Services\IsoDatabaseService.cs" Link="Core\Services\IsoDatabaseService.cs" />
     <Compile Include="..\Core\Services\UsbService.cs" Link="Core\Services\UsbService.cs" />
+    <Compile Include="..\Core\Services\DistroMatcher.cs" Link="Core\Services\DistroMatcher.cs" />
     <!-- Komplett plattformneutral (nur System.*-Usings, keine System.Windows-Typen, kein
          Verb="runas") — verifiziert vor der Aufnahme, siehe Phase-B-1-Plan. Liefert u.a.
          UpdateScanWorker für den DB-Gesundheitscheck. -->

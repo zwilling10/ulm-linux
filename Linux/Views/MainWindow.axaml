@@ -40,14 +40,8 @@
                      pulsierenden Text reduziert, gleiche Funktion/Sichtbarkeit). -->
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center"
                             HorizontalAlignment="Center" IsVisible="{Binding ScanInProgress}">
-                    <TextBlock x:Name="ScanHintTb" VerticalAlignment="Center"
+                    <TextBlock x:Name="ScanHintTb" VerticalAlignment="Center" Text="{Binding ScanHintFullText}"
                                Foreground="#FFC107" FontSize="10.5" FontWeight="SemiBold">
-                        <TextBlock.Text>
-                            <MultiBinding StringFormat="{}{0} ({1}%)">
-                                <Binding Path="ScanHintText"/>
-                                <Binding Path="OnlineScanPercent"/>
-                            </MultiBinding>
-                        </TextBlock.Text>
                         <TextBlock.Styles>
                             <Style Selector="TextBlock#ScanHintTb">
                                 <Style.Animations>
@@ -183,9 +177,22 @@
                                                                        Foreground="{Binding ForegroundBrush}"
                                                                        FontSize="12.5" FontWeight="SemiBold"
                                                                        VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
-                                                            <TextBlock Grid.Column="3" Text="{Binding LocalStatus}"
-                                                                       Foreground="{DynamicResource BrushMid}"
-                                                                       FontSize="11.5" VerticalAlignment="Center"/>
+                                                            <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center">
+                                                                <TextBlock Text="{Binding LocalStatus}"
+                                                                           Foreground="{DynamicResource BrushMid}"
+                                                                           FontSize="11.5" VerticalAlignment="Center"/>
+                                                                <!-- "⚡ schneller"-Button — Windows-Pendant: DownloadSlotArgs.
+                                                                     CanRequestFasterMirror im DownloadProgressDialog. Ruft
+                                                                     DownloadWorker.RequestFasterMirror(entryName) über den
+                                                                     Hauptfenster-DataContext auf (diese Zeile hat als
+                                                                     x:DataType nur LinuxIsoRow, kein eigener Worker-Zugriff). -->
+                                                                <Button Content="⚡" FontSize="10" Padding="4,0" Margin="4,0,0,0"
+                                                                        Classes="ghost"
+                                                                        IsVisible="{Binding CanRequestFasterMirror}"
+                                                                        ToolTip.Tip="{Binding $parent[Window].((vm:LinuxMainViewModel)DataContext).FasterMirrorTooltip}"
+                                                                        Command="{Binding $parent[Window].((vm:LinuxMainViewModel)DataContext).RequestFasterMirrorCommand}"
+                                                                        CommandParameter="{Binding Entry.Name}"/>
+                                                            </StackPanel>
                                                             <TextBlock Grid.Column="4" Text="{Binding UsbStatus}"
                                                                        Foreground="{DynamicResource BrushMid}"
                                                                        FontSize="11.5" VerticalAlignment="Center"/>
@@ -260,6 +267,21 @@
                     <TextBlock Text="{Binding DownloadPercent, StringFormat={}{0}%}" VerticalAlignment="Center"
                                Foreground="{DynamicResource BrushBlue}" FontSize="11.5" Margin="8,0"
                                IsVisible="{Binding IsBusy}"/>
+                    <Button Classes="ghost" Content="{Binding ActionCancelDownloadLabel}" Width="110"
+                            Command="{Binding CancelDownloadCommand}" IsVisible="{Binding IsBusy}"/>
+                </StackPanel>
+
+                <!-- Warteschlangen-Optionen (Windows-Pendant: DownloadSlotsDialog + die YesNoCancel-
+                     Abfragen "Nach dem Download kopieren?"/"Danach löschen?") — hier als dauerhaft
+                     sichtbare Steuerelemente statt Dialogkette, siehe Plan. Angehakte Zeilen +
+                     SelectedRow-Fallback bilden die Warteschlange (DownloadCommand). -->
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="{Binding DownloadSlotsLabel}" VerticalAlignment="Center" Margin="0,0,6,0" FontSize="12"/>
+                    <NumericUpDown Value="{Binding DownloadSlots}" Minimum="1" Maximum="{Binding MaxDownloadSlots}"
+                                   Width="90" Margin="0,0,16,0" FormatString="0" ShowButtonSpinner="True"/>
+                    <CheckBox Content="{Binding CopyAfterDownloadLabel}" IsChecked="{Binding CopyAfterDownload}" Margin="0,0,16,0"/>
+                    <CheckBox Content="{Binding DeleteAfterCopyLabel}" IsChecked="{Binding DeleteAfterCopy}"
+                              IsEnabled="{Binding CopyAfterDownload}"/>
                 </StackPanel>
 
                 <!-- "ExpertBar": die restlichen Windows-Werkzeuge sichtbar, aber ohne Linux-Backing

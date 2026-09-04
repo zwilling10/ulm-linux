@@ -1117,6 +1117,13 @@ namespace ULM.Infrastructure
                 "aus — mit Fortschrittsanzeige und Protokoll im selben Fenster. Während die Installation " +
                 "läuft, pausiert ULM die automatische Laufwerkserkennung.",
             [Str.Linux_Help_Color_Red_Body] = "URL nicht erreichbar — der Download-Server antwortet nicht. Erscheint nach einem URL-Check ('URLs prüfen').",
+
+            [Str.Linux_Log_StickScanFailed] = "Stick-Scan fehlgeschlagen: {0}",
+
+            [Str.Linux_Download_Slots]              = "Parallel:",
+            [Str.Linux_Download_CopyAfter]           = "Danach auf Stick kopieren",
+            [Str.Linux_Download_DeleteAfter]         = "Danach lokal löschen",
+            [Str.Linux_Download_FasterMirrorTooltip] = "Schnelleren Mirror versuchen",
         };
 
         private static readonly Dictionary<Str, string> En = new()
@@ -2184,6 +2191,13 @@ namespace ULM.Infrastructure
                 "background — with progress and log in the same window. While the installation runs, " +
                 "ULM pauses automatic drive detection.",
             [Str.Linux_Help_Color_Red_Body] = "URL unreachable — the download server is not responding. Appears after a URL check ('Check URLs').",
+
+            [Str.Linux_Log_StickScanFailed] = "Stick scan failed: {0}",
+
+            [Str.Linux_Download_Slots]              = "Parallel:",
+            [Str.Linux_Download_CopyAfter]           = "Copy to stick afterwards",
+            [Str.Linux_Download_DeleteAfter]         = "Delete locally afterwards",
+            [Str.Linux_Download_FasterMirrorTooltip] = "Try a faster mirror",
         };
     }
 }

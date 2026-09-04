@@ -93,10 +93,35 @@ namespace ULM.Linux.ViewModels
 
         public string StatusLabel => LocalStatus;
 
-        /// <summary>Windows-Spalte "Lokal".</summary>
-        public string LocalStatus => Entry.IsLocallyAvailable(_downloadDirectory)
+        private string? _liveStatus;
+        private bool _canRequestFasterMirror;
+
+        /// <summary>Windows-Spalte "Lokal" — zeigt während eines laufenden Download/Kopier-
+        /// Vorgangs (siehe LinuxMainViewModel.UpdateRowLiveStatus) den Live-Fortschritt statt des
+        /// statischen Lokal/Nicht-lokal-Texts. Absichtlich ein Overlay-Feld statt Entry-Mutation:
+        /// vermeidet, dass jeder 0,4s-Fortschritts-Tick des DownloadWorker/CopyToUsbWorker die
+        /// persistierte IsoEntry-DB unnötig anfasst.</summary>
+        public string LocalStatus => _liveStatus ?? (Entry.IsLocallyAvailable(_downloadDirectory)
             ? LocalizationService.T(Str.Row_Local)
-            : LocalizationService.T(Str.Row_NotLocal);
+            : LocalizationService.T(Str.Row_NotLocal));
+
+        /// <summary>Steuert die Sichtbarkeit des "⚡ schneller"-Buttons je Zeile — Windows-Pendant:
+        /// DownloadSlotArgs.CanRequestFasterMirror im DownloadProgressDialog.</summary>
+        public bool CanRequestFasterMirror => _canRequestFasterMirror;
+
+        /// <summary>Setzt/löscht den Live-Fortschritts-Overlay. <paramref name="status"/> null
+        /// löscht ihn wieder (fällt zurück auf den statischen Lokal-Text) — wird nach Abschluss
+        /// eines Downloads/einer Kopie NICHT explizit aufgerufen, da ApplyFilter() am Ende ohnehin
+        /// alle Rows neu erzeugt (frische Instanz, kein Overlay).</summary>
+        public void SetLiveStatus(string? status, bool canRequestFasterMirror)
+        {
+            if (_liveStatus == status && _canRequestFasterMirror == canRequestFasterMirror) return;
+            _liveStatus = status;
+            _canRequestFasterMirror = canRequestFasterMirror;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LocalStatus)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(StatusLabel)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanRequestFasterMirror)));
+        }
 
         /// <summary>Windows-Spalte "Auf dem Stick". Nutzt das bereits im geteilten Core-Modell
         /// vorhandene <see cref="IsoEntry.UsbStatus"/>-Feld — auf Linux bislang IMMER
