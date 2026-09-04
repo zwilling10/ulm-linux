@@ -33,6 +33,12 @@ namespace ULM.Linux.Views
             if (result is not null) _vm.GitHubToken = result;
         }
 
+        private async void BtnSettings_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+        {
+            if (_vm is null) return;
+            await new SettingsDialog(_vm).ShowDialog(this);
+        }
+
         // DB-Gesundheitscheck selbst läuft komplett über RunHealthCheckCommand (MVVM-Binding in
         // MainWindow.axaml, braucht kein Fenster als Owner) — nur das Ergebnis-Dialog-Öffnen
         // danach braucht Code-behind (Owner-Fenster).

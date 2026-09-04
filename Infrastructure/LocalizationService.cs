@@ -1101,6 +1101,14 @@ namespace ULM.Infrastructure
             [Str.Linux_Ventoy_ResultSuccess]      = "Ventoy-Vorgang abgeschlossen.",
             [Str.Linux_Ventoy_ResultFailed]       = "Ventoy-Vorgang fehlgeschlagen.",
             [Str.Linux_StatusBar_ShowInfoOnHover] = "Info-Fenster (Mouseover)",
+
+            [Str.Settings_DialogTitle]            = "⚙ Einstellungen",
+            [Str.Settings_Card_Language]          = "🌐 Sprache",
+            [Str.Settings_Card_WorkDir]           = "📁 Arbeitsverzeichnis",
+            [Str.Settings_WorkDir_Hint]           = "Enthält ISOs, Datenbank, Log und Cache. Wirkt erst nach einem Neustart von ULM.",
+            [Str.Settings_Btn_ChooseFolder]       = "Ordner wählen…",
+            [Str.Settings_RestartConfirm_Title]   = "Neustart erforderlich",
+            [Str.Settings_RestartConfirm_Message] = "Das Arbeitsverzeichnis wurde geändert. ULM muss neu gestartet werden, damit die Änderung wirksam wird. Jetzt neu starten?",
         };
 
         private static readonly Dictionary<Str, string> En = new()
@@ -2152,6 +2160,14 @@ namespace ULM.Infrastructure
             [Str.Linux_Ventoy_ResultSuccess]      = "Ventoy operation completed.",
             [Str.Linux_Ventoy_ResultFailed]       = "Ventoy operation failed.",
             [Str.Linux_StatusBar_ShowInfoOnHover] = "Info window (mouseover)",
+
+            [Str.Settings_DialogTitle]            = "⚙ Settings",
+            [Str.Settings_Card_Language]          = "🌐 Language",
+            [Str.Settings_Card_WorkDir]           = "📁 Working Directory",
+            [Str.Settings_WorkDir_Hint]           = "Contains ISOs, database, log and cache. Takes effect after restarting ULM.",
+            [Str.Settings_Btn_ChooseFolder]       = "Choose folder…",
+            [Str.Settings_RestartConfirm_Title]   = "Restart required",
+            [Str.Settings_RestartConfirm_Message] = "The working directory has changed. ULM needs to restart for this to take effect. Restart now?",
         };
     }
 }

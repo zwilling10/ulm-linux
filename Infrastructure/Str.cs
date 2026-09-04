@@ -557,5 +557,8 @@ namespace ULM.Infrastructure
         Linux_Ventoy_ResultSuccess,
         Linux_Ventoy_ResultFailed,
         Linux_StatusBar_ShowInfoOnHover,
+
+        Settings_DialogTitle, Settings_Card_Language, Settings_Card_WorkDir, Settings_WorkDir_Hint,
+        Settings_Btn_ChooseFolder, Settings_RestartConfirm_Title, Settings_RestartConfirm_Message,
     }
 }

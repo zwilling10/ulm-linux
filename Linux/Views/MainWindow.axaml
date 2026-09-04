@@ -35,10 +35,11 @@
                 </StackPanel>
 
                 <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-                    <!-- Einstellungen/Hilfe: sichtbar wie unter Windows, aber deaktiviert — die
-                         dahinterliegenden Dialoge existieren auf Linux noch nicht (Phase B, siehe Plan). -->
+                    <!-- Hilfe: sichtbar wie unter Windows, aber weiterhin deaktiviert — der
+                         Hilfe-Dialog existiert auf Linux noch nicht (spätere Phase). Einstellungen
+                         ist jetzt aktiv, siehe SettingsDialog. -->
                     <Button Classes="ghost-onbar" Content="{Binding SettingsLabel}" Width="140"
-                            Margin="0,0,8,0" IsEnabled="False" ToolTip.Tip="{Binding NotAvailableTooltip}"/>
+                            Margin="0,0,8,0" Click="BtnSettings_Click"/>
                     <Button Classes="ghost-onbar" Content="{Binding HelpLabel}" Width="80"
                             IsEnabled="False" ToolTip.Tip="{Binding NotAvailableTooltip}"/>
                 </StackPanel>
@@ -52,13 +53,11 @@
              Linux-Features ohne Windows-Äquivalent an dieser Stelle. -->
         <Border Grid.Row="1" Background="{DynamicResource BrushWhite}"
                 BorderBrush="{DynamicResource BrushBorder}" BorderThickness="0,0,0,1">
-            <Grid ColumnDefinitions="*,Auto,Auto" Margin="18,8">
+            <Grid ColumnDefinitions="*,Auto" Margin="18,8">
                 <TextBox Grid.Column="0" Watermark="{Binding SearchPlaceholder}" Text="{Binding SearchText}"
                           Margin="0,0,8,0"/>
                 <Button Grid.Column="1" Classes="ghost" Content="{Binding RefreshLabel}"
-                        Command="{Binding RefreshCommand}" Margin="0,0,8,0"/>
-                <Button Grid.Column="2" Classes="ghost" Content="{Binding LanguageButtonLabel}"
-                        Command="{Binding ToggleLanguageCommand}" Width="48"/>
+                        Command="{Binding RefreshCommand}"/>
             </Grid>
         </Border>
 

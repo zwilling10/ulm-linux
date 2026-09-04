@@ -20,7 +20,11 @@ namespace ULM.Linux
         public override void OnFrameworkInitializationCompleted()
         {
             Directory.CreateDirectory(LinuxPaths.ConfigDir);
-            AppPaths.Instance.Apply(LinuxPaths.DataDir);
+            // Optionales, per SettingsDialog gesetztes Arbeitsverzeichnis (ISOs/DB/Log/Cache)
+            // überschreibt den XDG-Standardpfad — fehlt der Schlüssel (Standardfall), bleibt
+            // exakt das bisherige Verhalten (LinuxPaths.DataDir).
+            string baseDir = IniService.Read(LinuxPaths.SettingsIni, "App", "BaseDirectory", LinuxPaths.DataDir);
+            AppPaths.Instance.Apply(baseDir);
             LocalizationService.Initialize(LinuxPaths.SettingsIni);
             IsoDatabaseService.Instance.Load();
 
