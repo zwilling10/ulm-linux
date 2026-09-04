@@ -37,6 +37,7 @@ namespace ULM.Linux
                 _drivePollTimer.Tick += async (_, _) => await viewModel.PollDrivesAsync();
                 _drivePollTimer.Start();
                 _ = viewModel.PollDrivesAsync();
+                _ = viewModel.TriggerAutoVersionCheckAsync();
             }
 
             base.OnFrameworkInitializationCompleted();

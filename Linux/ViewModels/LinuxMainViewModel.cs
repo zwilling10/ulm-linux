@@ -58,6 +58,8 @@ namespace ULM.Linux.ViewModels
             ClearLogCommand        = new RelayCommand(() => LogEntries.Clear());
             RunHealthCheckCommand  = new RelayCommand(() => _ = RunHealthCheckAsync(), () => !IsBusy && !HealthCheckActive);
             VerifyIntegrityCommand = new RelayCommand(() => _ = VerifyStickIntegrityAsync(), () => SelectedDrive is not null && !IsBusy);
+            CheckUpdatesCommand    = new RelayCommand(() => _ = CheckUpdatesAsync(), () => !IsBusy);
+            CheckUrlsCommand       = new RelayCommand(() => _ = CheckUrlsAsync(), () => !IsBusy);
 
             _gitHubToken = IniService.Read(_settingsIniPath, "App", "GitHubToken", string.Empty);
             HttpService.Instance.GitHubToken = _gitHubToken;
@@ -135,6 +137,8 @@ namespace ULM.Linux.ViewModels
             ConfirmVentoyCommand.RaiseCanExecuteChanged();
             RunHealthCheckCommand.RaiseCanExecuteChanged();
             VerifyIntegrityCommand.RaiseCanExecuteChanged();
+            CheckUpdatesCommand.RaiseCanExecuteChanged();
+            CheckUrlsCommand.RaiseCanExecuteChanged();
         }
 
         private int _downloadPercent;
@@ -164,6 +168,41 @@ namespace ULM.Linux.ViewModels
             get => _integrityStatus;
             private set { if (SetField(ref _integrityStatus, value)) { OnPropertyChanged(nameof(HasAnyStatus)); OnPropertyChanged(nameof(StatusBarText)); AppendLog(value); } }
         }
+
+        private string _updateCheckStatus = string.Empty;
+        public string UpdateCheckStatus
+        {
+            get => _updateCheckStatus;
+            private set { if (SetField(ref _updateCheckStatus, value)) { OnPropertyChanged(nameof(HasAnyStatus)); OnPropertyChanged(nameof(StatusBarText)); AppendLog(value); } }
+        }
+
+        private string _urlCheckStatus = string.Empty;
+        public string UrlCheckStatus
+        {
+            get => _urlCheckStatus;
+            private set { if (SetField(ref _urlCheckStatus, value)) { OnPropertyChanged(nameof(HasAnyStatus)); OnPropertyChanged(nameof(StatusBarText)); AppendLog(value); } }
+        }
+
+        // ── Automatischer Online-Versionscheck beim Start (Windows-Pendant: MainViewModel.
+        // TriggerAutoVersionCheck/OnlineScanActive) — treibt den pulsierenden Hinweis oben mittig
+        // in der Kopfzeile (ScanInProgress/ScanHintText), bewusst OHNE IsBusy zu setzen: Windows
+        // sperrt während des Starts ebenfalls keine Buttons, zeigt nur eine Warnung. ──
+        private bool _onlineScanActive;
+        public bool OnlineScanActive
+        {
+            get => _onlineScanActive;
+            private set { if (SetField(ref _onlineScanActive, value)) { OnPropertyChanged(nameof(ScanInProgress)); OnPropertyChanged(nameof(ScanHintText)); } }
+        }
+
+        private int _onlineScanPercent;
+        public int OnlineScanPercent
+        {
+            get => _onlineScanPercent;
+            private set => SetField(ref _onlineScanPercent, value);
+        }
+
+        public bool ScanInProgress => OnlineScanActive;
+        public string ScanHintText => OnlineScanActive ? LocalizationService.T(Str.Main_ScanHint_Online) : string.Empty;
 
         private bool _secureBootEnabled;
         public bool SecureBootEnabled
@@ -273,7 +312,8 @@ namespace ULM.Linux.ViewModels
         /// steuert den Wechsel zwischen den drei Status-Zeilen und dem "Kein Vorgang aktiv."-Text.</summary>
         public bool HasAnyStatus =>
             !string.IsNullOrEmpty(DownloadStatus) || !string.IsNullOrEmpty(CopyStatus)
-            || !string.IsNullOrEmpty(VentoyStatus) || !string.IsNullOrEmpty(IntegrityStatus);
+            || !string.IsNullOrEmpty(VentoyStatus) || !string.IsNullOrEmpty(IntegrityStatus)
+            || !string.IsNullOrEmpty(UpdateCheckStatus) || !string.IsNullOrEmpty(UrlCheckStatus);
 
         private string _gitHubToken = string.Empty;
         /// <summary>Optionales GitHub Personal Access Token — hebt nur das API-Limit für
@@ -328,12 +368,16 @@ namespace ULM.Linux.ViewModels
         public RelayCommand ClearLogCommand { get; }
         public RelayCommand RunHealthCheckCommand { get; }
         public RelayCommand VerifyIntegrityCommand { get; }
+        public RelayCommand CheckUpdatesCommand { get; }
+        public RelayCommand CheckUrlsCommand { get; }
 
         /// <summary>Statusleisten-Text (Windows-Pendant: `StatusText`/`StatusLbl`) — zeigt die
         /// zuletzt geänderte der drei Vorgangs-Statuszeilen, sonst leer.</summary>
         public string StatusBarText =>
             !string.IsNullOrEmpty(VentoyStatus) ? VentoyStatus.Split('\n')[^1]
             : !string.IsNullOrEmpty(IntegrityStatus) ? IntegrityStatus
+            : !string.IsNullOrEmpty(UrlCheckStatus) ? UrlCheckStatus
+            : !string.IsNullOrEmpty(UpdateCheckStatus) ? UpdateCheckStatus
             : !string.IsNullOrEmpty(CopyStatus) ? CopyStatus
             : DownloadStatus;
 
@@ -563,6 +607,89 @@ namespace ULM.Linux.ViewModels
                 HealthCheckActive = false;
                 HealthCheckPercent = 100;
                 HealthCheckCompleted?.Invoke(results);
+                tcs.TrySetResult();
+            });
+            await worker.RunAsync().ConfigureAwait(true);
+            await tcs.Task.ConfigureAwait(true);
+        }
+
+        /// <summary>Automatischer Online-Versionscheck beim Programmstart. Windows-Pendant:
+        /// MainViewModel.TriggerAutoVersionCheck(). Läuft unaufgefordert (kein Button), treibt
+        /// nur OnlineScanActive/-Percent (Kopfzeilen-Hinweis) — bewusst kein IsBusy, wie unter
+        /// Windows. Live-Zeilen pro Distro landen im Protokoll; ein einzelner ApplyFilter()-Aufruf
+        /// erst am Ende (statt pro Eintrag) vermeidet Listen-Geflacker/Auswahlverlust während des
+        /// Laufs.</summary>
+        public async Task TriggerAutoVersionCheckAsync()
+        {
+            if (_db.Entries.Count == 0) return;
+            OnlineScanActive = true; OnlineScanPercent = 0;
+            var worker = new AutoVersionCheckWorker(_db.Entries, _downloadDirectory);
+            worker.Progress += (c, t) => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                OnlineScanPercent = t > 0 ? (c * 100) / t : 0);
+            worker.EntryChecked += result => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                AppendLog(!result.Resolved
+                    ? string.Format(LocalizationService.T(Str.Log_EntryUnreachable), result.Name)
+                    : result.HasUpdate
+                        ? string.Format(LocalizationService.T(Str.Log_UpdateFound), result.Name, result.LocalVersion, result.RemoteVersion)
+                        : string.Format(LocalizationService.T(Str.Log_VersionCurrent), result.Name, result.RemoteVersion)));
+            var tcs = new TaskCompletionSource();
+            worker.Completed += (resolved, updates) => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            {
+                if (updates.Count > 0 || worker.AnyUrlDiscovered || worker.AnyStreakChanged) _db.Save();
+                OnlineScanActive = false; OnlineScanPercent = 100;
+                ApplyFilter();
+                tcs.TrySetResult();
+            });
+            await worker.RunAsync().ConfigureAwait(true);
+            await tcs.Task.ConfigureAwait(true);
+        }
+
+        /// <summary>"Nach Updates suchen"-Button. Windows-Pendant: MainViewModel.OnCheckUpdates().</summary>
+        public async Task CheckUpdatesAsync()
+        {
+            if (IsBusy) return;
+            IsBusy = true; UpdateCheckStatus = LocalizationService.T(Str.Log_CheckingForUpdates);
+            var worker = new UpdateScanWorker(_db.Entries, _downloadDirectory);
+            worker.EntryChecked += result => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                AppendLog(!result.Resolved
+                    ? string.Format(LocalizationService.T(Str.Log_ManualCheckUnreachable), result.Name)
+                    : result.HasUpdate
+                        ? string.Format(LocalizationService.T(Str.Log_UpdateFound), result.Name, result.LocalVersion, result.RemoteVersion)
+                        : string.Format(LocalizationService.T(Str.Log_ManualCheckCurrent), result.Name, result.RemoteVersion)));
+            var tcs = new TaskCompletionSource();
+            worker.Completed += (resolved, updates) => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            {
+                if (updates.Count > 0 || worker.AnyUrlDiscovered || worker.AnyStreakChanged) _db.Save();
+                IsBusy = false;
+                UpdateCheckStatus = updates.Count > 0 ? string.Format(LocalizationService.T(Str.Log_UpdatesFoundStatus), updates.Count)
+                                  : resolved > 0       ? LocalizationService.T(Str.Log_AllCurrentSimpleStatus) : LocalizationService.T(Str.Log_NoLocalIsosStatus);
+                ApplyFilter();
+                tcs.TrySetResult();
+            });
+            await worker.RunAsync().ConfigureAwait(true);
+            await tcs.Task.ConfigureAwait(true);
+        }
+
+        /// <summary>"URLs prüfen"-Button. Windows-Pendant: MainViewModel.OnCheckUrls().</summary>
+        public async Task CheckUrlsAsync()
+        {
+            if (IsBusy) return;
+            IsBusy = true; UrlCheckStatus = LocalizationService.T(Str.Log_CheckingUrls);
+            var entries = _db.Entries.ToList();
+            var worker = new UrlCheckWorker(entries);
+            worker.EntryChecked += (i, ok) => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            {
+                if (i >= 0 && i < entries.Count)
+                    AppendLog(string.Format(LocalizationService.T(Str.Log_UrlCheckItem), ok ? "✓" : "✗", entries[i].Name));
+            });
+            var tcs = new TaskCompletionSource();
+            worker.Completed += (_, _) => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            {
+                if (worker.AnyUrlDiscovered || worker.AnyStreakChanged) { _db.Save(); AppendLog(LocalizationService.T(Str.Log_DbNewSourcesSaved)); }
+                IsBusy = false;
+                int ok = entries.Count(e => e.UrlOk); int nok = entries.Count(e => e.UrlChecked && !e.UrlOk);
+                UrlCheckStatus = string.Format(LocalizationService.T(Str.Log_UrlCheckSummaryStatus), ok, nok);
+                ApplyFilter();
                 tcs.TrySetResult();
             });
             await worker.RunAsync().ConfigureAwait(true);

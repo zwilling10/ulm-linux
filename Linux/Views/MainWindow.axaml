@@ -34,6 +34,33 @@
                     </StackPanel>
                 </StackPanel>
 
+                <!-- Startphasen-Hinweis: pulsierender Text, sichtbar solange der automatische
+                     Online-Versionscheck läuft (Windows-Pendant: ScanInProgress/ScanHintText,
+                     dort zusätzlich mit rotierendem Spinner-Icon — hier bewusst auf den
+                     pulsierenden Text reduziert, gleiche Funktion/Sichtbarkeit). -->
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center"
+                            HorizontalAlignment="Center" IsVisible="{Binding ScanInProgress}">
+                    <TextBlock x:Name="ScanHintTb" VerticalAlignment="Center"
+                               Foreground="#FFC107" FontSize="10.5" FontWeight="SemiBold">
+                        <TextBlock.Text>
+                            <MultiBinding StringFormat="{}{0} ({1}%)">
+                                <Binding Path="ScanHintText"/>
+                                <Binding Path="OnlineScanPercent"/>
+                            </MultiBinding>
+                        </TextBlock.Text>
+                        <TextBlock.Styles>
+                            <Style Selector="TextBlock#ScanHintTb">
+                                <Style.Animations>
+                                    <Animation Duration="0:0:0.85" IterationCount="INFINITE" PlaybackDirection="Alternate">
+                                        <KeyFrame Cue="0%"><Setter Property="Opacity" Value="1.0"/></KeyFrame>
+                                        <KeyFrame Cue="100%"><Setter Property="Opacity" Value="0.35"/></KeyFrame>
+                                    </Animation>
+                                </Style.Animations>
+                            </Style>
+                        </TextBlock.Styles>
+                    </TextBlock>
+                </StackPanel>
+
                 <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
                     <Button Classes="ghost-onbar" Content="{Binding SettingsLabel}" Width="140"
                             Margin="0,0,8,0" Click="BtnSettings_Click"/>
@@ -208,6 +235,10 @@
                                        IsVisible="{Binding DownloadStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
                             <TextBlock Text="{Binding CopyStatus}" FontSize="12"
                                        IsVisible="{Binding CopyStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                            <TextBlock Text="{Binding UpdateCheckStatus}" FontSize="12"
+                                       IsVisible="{Binding UpdateCheckStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                            <TextBlock Text="{Binding UrlCheckStatus}" FontSize="12"
+                                       IsVisible="{Binding UrlCheckStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
                             <TextBlock Text="{Binding VentoyStatus}" FontSize="12" TextWrapping="Wrap"
                                        IsVisible="{Binding VentoyStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
                         </StackPanel>
@@ -225,7 +256,7 @@
                     <Button Classes="primary" Content="{Binding ActionDownloadLabel}" Width="180"
                             Command="{Binding DownloadCommand}" Margin="0,0,8,0"/>
                     <Button Classes="warning" Content="{Binding ActionCheckUpdatesLabel}" Width="150"
-                            IsEnabled="False" ToolTip.Tip="{Binding ActionNotAvailableTooltip}"/>
+                            Command="{Binding CheckUpdatesCommand}"/>
                     <TextBlock Text="{Binding DownloadPercent, StringFormat={}{0}%}" VerticalAlignment="Center"
                                Foreground="{DynamicResource BrushBlue}" FontSize="11.5" Margin="8,0"
                                IsVisible="{Binding IsBusy}"/>
@@ -236,7 +267,7 @@
                      das Feature existiert bereits (Phase 2). -->
                 <StackPanel Orientation="Horizontal">
                     <Button Classes="ghost" Content="{Binding ActionCheckUrlsLabel}" Width="130" Margin="0,0,8,0"
-                            IsEnabled="False" ToolTip.Tip="{Binding ActionNotAvailableTooltip}"/>
+                            Command="{Binding CheckUrlsCommand}"/>
                     <Button Classes="ghost" Content="{Binding ActionSearchIsoLabel}" Width="130" Margin="0,0,8,0"
                             Click="BtnSearchIso_Click"/>
                     <Button Classes="ghost" Content="{Binding ActionDatabaseLabel}" Width="130" Margin="0,0,8,0"
