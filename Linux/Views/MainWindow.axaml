@@ -177,8 +177,17 @@
                                                                        Foreground="{Binding ForegroundBrush}"
                                                                        FontSize="12.5" FontWeight="SemiBold"
                                                                        VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                                                            <!-- Spalte 3 ist fest 100px breit (siehe ColumnDefinitions oben) — der
+                                                                 Live-Fortschrittstext während eines Downloads ("8% ↓ host.tld —
+                                                                 53 MB/2.9 GB · 26 MB/s") ist deutlich länger als "nicht lokal" und
+                                                                 lief ohne feste Breite/Trimming über die Spaltengrenze hinaus in die
+                                                                 Nachbarspalten/-zeilen (Nutzerfund 2026-09-04, Screenshot). Feste
+                                                                 Width + TextTrimming zwingt ihn in die Spalte, ToolTip zeigt den
+                                                                 vollen Text bei Bedarf. -->
                                                             <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center">
-                                                                <TextBlock Text="{Binding LocalStatus}"
+                                                                <TextBlock Text="{Binding LocalStatus}" Width="80"
+                                                                           TextTrimming="CharacterEllipsis"
+                                                                           ToolTip.Tip="{Binding LocalStatus}"
                                                                            Foreground="{DynamicResource BrushMid}"
                                                                            FontSize="11.5" VerticalAlignment="Center"/>
                                                                 <!-- "⚡ schneller"-Button — Windows-Pendant: DownloadSlotArgs.
