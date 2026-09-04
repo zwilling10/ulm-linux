@@ -69,15 +69,18 @@ namespace ULM.Linux.ViewModels
         public string CategoryKey => Entry.Category;
         public string CategoryLabel => Constants.CategoryLabel(Entry.Category);
 
-        private bool _isSelected;
-        /// <summary>Zeilen-Checkbox — markiert den Eintrag für den nächsten Sammel-Download,
-        /// analog zur Windows-Spaltenüberschrift "Haken = Download". Phase A führt nur das Feld +
-        /// die Bindung ein; ein Mehrfach-Download-Befehl über alle IsSelected-Zeilen ist bewusst
-        /// nicht Teil dieser Phase (SelectedRow/DownloadCommand bleiben unverändert Single-Select).</summary>
+        /// <summary>Zeilen-Checkbox — markiert den Eintrag für den nächsten Sammel-Download
+        /// (Windows-Pendant: IsoEntryViewModel.IsSelected, ViewModels/IsoViewModels.cs). Delegiert
+        /// direkt an Entry.IsSelected statt an ein eigenes lokales Feld — Nutzerfund (2026-09-04):
+        /// ein lokales Row-Feld blieb von DownloadQueueAsync() unsichtbar (das liest
+        /// _db.Entries.Where(e => e.IsSelected)), Checkbox-Haken führten deshalb nie zu einer
+        /// Warteschlange ("Bitte mindestens eine Distro markieren" trotz Haken). Delegieren löst
+        /// das UND übersteht ApplyFilter()-Neuaufbauten (frische LinuxIsoRow-Instanz liest den
+        /// Zustand einfach wieder vom Entry), wo ein lokales Feld verloren gegangen wäre.</summary>
         public bool IsSelected
         {
-            get => _isSelected;
-            set { if (_isSelected == value) return; _isSelected = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsSelected))); }
+            get => Entry.IsSelected;
+            set { if (Entry.IsSelected == value) return; Entry.IsSelected = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsSelected))); }
         }
 
         public string SizeLabel
