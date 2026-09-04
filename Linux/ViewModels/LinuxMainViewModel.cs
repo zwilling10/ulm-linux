@@ -47,7 +47,13 @@ namespace ULM.Linux.ViewModels
             // bestehen, ohne dass eine davon zusätzlich als SelectedRow markiert ist. Eine leere
             // Warteschlange meldet DownloadQueueAsync() selbst über DownloadStatus zurück.
             DownloadCommand        = new RelayCommand(() => _ = DownloadQueueAsync(), () => !IsBusy);
-            CancelDownloadCommand  = new RelayCommand(() => _activeDownloadWorker?.Cancel(), () => IsBusy && _activeDownloadWorker is not null);
+            // Nutzerfund (2026-09-04): Klick auf "Abbrechen" während der Kopier-Pipeline-Phase
+            // (nach dem Download) tat nichts — _activeDownloadWorker zeigt dort noch auf den
+            // längst FERTIGEN DownloadWorker, der laufende CopyToUsbWorker (RunCopyBatchAsync)
+            // war nie erreichbar. Beide Worker-Referenzen jetzt hier abgedeckt.
+            CancelDownloadCommand  = new RelayCommand(
+                () => { _activeDownloadWorker?.Cancel(); _activeCopyWorker?.Cancel(); },
+                () => IsBusy && (_activeDownloadWorker is not null || _activeCopyWorker is not null));
             RequestFasterMirrorCommand = new RelayCommand<string>(name => { if (name is not null) _activeDownloadWorker?.RequestFasterMirror(name); });
             CopyToStickCommand     = new RelayCommand(() => _ = CopySelectedToStickAsync(), () => SelectedRow is not null && SelectedDrive is not null && !IsBusy);
             RequestVentoyInstallCommand = new RelayCommand(() => RequestVentoyConfirmation(updateMode: false), () => SelectedDrive is not null && !IsBusy);
@@ -156,6 +162,7 @@ namespace ULM.Linux.ViewModels
         }
 
         private DownloadWorker? _activeDownloadWorker;
+        private CopyToUsbWorker? _activeCopyWorker;
 
         private int _downloadSlots = 1;
         /// <summary>Windows-Pendant: DownloadSlotsDialog-Auswahl — hier statt eines eigenen Modal-
@@ -546,6 +553,10 @@ namespace ULM.Linux.ViewModels
             await worker.RunAsync().ConfigureAwait(true);
             var (okCount, failedCount) = await tcs.Task.ConfigureAwait(true);
             _db.Save();
+            // Download-Phase vorbei — ab hier zeigt _activeDownloadWorker sonst fälschlich auf
+            // einen längst fertigen Worker, während die Kopier-Phase (falls sie folgt) über
+            // _activeCopyWorker läuft. Siehe CancelDownloadCommand-Kommentar oben.
+            _activeDownloadWorker = null;
 
             int copyOk = 0, copyFailed = 0;
             if (copyAfter && okCount > 0 && mountPoint is not null)
@@ -569,16 +580,23 @@ namespace ULM.Linux.ViewModels
             if (toCopy.Count == 0) { tcs.SetResult((0, 0)); return tcs.Task; }
 
             var worker = new CopyToUsbWorker(toCopy, mountPoint, false, _downloadDirectory);
+            _activeCopyWorker = worker;
+            CancelDownloadCommand.RaiseCanExecuteChanged();
             worker.Progress += (pct, detail) => Avalonia.Threading.Dispatcher.UIThread.Post(() => { DownloadPercent = pct; CopyStatus = detail; });
             worker.FileProgress += (name, pct, status) => Avalonia.Threading.Dispatcher.UIThread.Post(() => UpdateRowLiveStatus(name, $"{pct}% {status}", false));
-            worker.Completed += (_, copiedCount, _, message) => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            worker.Completed += (ok, copiedCount, _, message) => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
             {
                 CopyStatus = message;
                 UsbService.UpdateVentoyMenu(mountPoint, _db.Entries);
-                if (deleteAfter)
+                // Windows-Pendant: MainViewModel.StartCopyToStick() löscht ebenfalls nur bei
+                // ok==true — bei Abbruch/Fehler bleiben die lokalen Quelldateien erhalten (sonst
+                // Datenverlust: ein abgebrochener Kopiervorgang hätte trotzdem alle Quell-ISOs
+                // gelöscht, obwohl der Stick sie gar nicht vollständig hat).
+                if (deleteAfter && ok)
                     foreach (var e in toCopy)
                         IsoEntry.TryDelete(System.IO.Path.Combine(_downloadDirectory, e.Filename), line => AppendLog(line));
                 _db.Save();
+                _activeCopyWorker = null;
                 tcs.TrySetResult((copiedCount, toCopy.Count - copiedCount));
             });
             _ = worker.RunAsync();
