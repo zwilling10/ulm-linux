@@ -136,6 +136,50 @@ namespace ULM.Linux.Tests
             Assert.True(fired);
         }
 
+        // Windows-Pendant: MainViewModel.DeduplicateEntries() — hier über die beobachtbare
+        // Konstruktor-Wirkung getestet (die Methode selbst ist wie unter Windows private).
+        // "Gesundheitscheck & Duplikat-Schutz", Nutzerwunsch 2026-09-04.
+        [Fact]
+        public void Constructor_MergesFuzzyDuplicatesAndKeepsNewerFilename()
+        {
+            var db = new FakeIsoDatabaseService();
+            db.Add(new IsoEntry { Name = "Ubuntu 24.04 LTS", Category = "Einsteiger", Filename = "ubuntu-24.04-desktop-amd64.iso" });
+            db.Add(new IsoEntry { Name = "Ubuntu 26.04 LTS", Category = "Einsteiger", Filename = "ubuntu-26.04-desktop-amd64.iso" });
+
+            var vm = new LinuxMainViewModel(db, "/tmp/ulm-linux-vm-test");
+
+            Assert.Single(db.Entries);
+            Assert.Equal("ubuntu-26.04-desktop-amd64.iso", db.Entries[0].Filename);
+        }
+
+        // Windows-Pendant: MainViewModel.AddImportedEntry() — der Kern des "Duplikat-Schutz"-
+        // Versprechens aus der Linux-Hilfe (Str.Help_Item_DuplicateProtection_Body): eine ältere,
+        // zufällig gefundene Version darf den Katalog nicht rückwärts degradieren.
+        [Fact]
+        public void AddImportedEntry_OlderVersionMatch_KeepsExistingNewerFilenameAndAddsNoDuplicate()
+        {
+            var db = new FakeIsoDatabaseService();
+            db.Add(new IsoEntry { Name = "Ubuntu 26.04 LTS", Category = "Einsteiger", Filename = "ubuntu-26.04-desktop-amd64.iso" });
+            var vm = new LinuxMainViewModel(db, "/tmp/ulm-linux-vm-test");
+
+            vm.AddImportedEntry(new IsoEntry { Name = "Ubuntu 24.04 LTS", Category = "Einsteiger", Filename = "ubuntu-24.04-desktop-amd64.iso" });
+
+            Assert.Single(db.Entries);
+            Assert.Equal("ubuntu-26.04-desktop-amd64.iso", db.Entries[0].Filename);
+        }
+
+        [Fact]
+        public void AddImportedEntry_NoExistingMatch_AddsAsNewEntry()
+        {
+            var db = new FakeIsoDatabaseService();
+            db.Add(new IsoEntry { Name = "Fedora Workstation", Category = "Fortgeschrittene", Filename = "fedora-Workstation-Live-44-1.7.x86_64.iso" });
+            var vm = new LinuxMainViewModel(db, "/tmp/ulm-linux-vm-test");
+
+            vm.AddImportedEntry(new IsoEntry { Name = "Debian 12", Category = "Fortgeschrittene", Filename = "debian-12.iso" });
+
+            Assert.Equal(2, db.Entries.Count);
+        }
+
         [Fact]
         public void CancelDownloadCommand_DisabledWithoutRunningDownload()
         {

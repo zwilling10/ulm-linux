@@ -228,7 +228,11 @@ namespace ULM.Linux.Views
             await dlg.ShowDialog<bool>(this);
             if (dlg.AddedEntries.Count == 0) return;
 
-            foreach (var entry in dlg.AddedEntries) ULM.Core.Services.IsoDatabaseService.Instance.Add(entry);
+            // Windows-Pendant: MainViewModel.AddImportedEntry() statt blindem Add() — "Duplikat-
+            // Schutz" (Nutzerwunsch 2026-09-04): erkennt ein Online-Suchtreffer eine bereits
+            // vorhandene Distro (andere Schreibweise/Dateiname), wird kein doppelter Eintrag
+            // angelegt, sondern der bestehende Eintrag übernimmt ggf. den neuen Dateinamen.
+            foreach (var entry in dlg.AddedEntries) _vm.AddImportedEntry(entry);
             ULM.Core.Services.IsoDatabaseService.Instance.Save();
             _vm.Refresh();
             _vm.LogEntries.Add(string.Format(LocalizationService.T(Str.Log_IsosAddedFromOnlineSearch), dlg.AddedEntries.Count));

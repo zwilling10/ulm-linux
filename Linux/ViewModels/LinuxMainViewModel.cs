@@ -67,6 +67,11 @@ namespace ULM.Linux.ViewModels
             _gitHubToken = IniService.Read(_settingsIniPath, "App", "GitHubToken", string.Empty);
             HttpService.Instance.GitHubToken = _gitHubToken;
 
+            // Windows-Pendant: MainViewModel.Initialize() ruft DeduplicateEntries() direkt nach
+            // dem DB-Load auf, bevor der Baum/die Liste aufgebaut wird — Nutzerwunsch (2026-09-04):
+            // "Duplikat-Schutz" prüfen/nachrüsten. _db ist zu diesem Zeitpunkt bereits geladen
+            // (App.axaml.cs ruft IsoDatabaseService.Instance.Load() VOR diesem Konstruktor).
+            DeduplicateEntries();
             ApplyFilter();
         }
 
@@ -402,6 +407,94 @@ namespace ULM.Linux.ViewModels
             LogEntries.Add(line);
         }
 
+        /// <summary>Windows-Pendant: MainViewModel.DeduplicateEntries() — 1:1 dieselbe Logik über
+        /// dieselben, schon plattformneutral verlinkten DistroMatcher-Funktionen (kein Neuschreiben).
+        /// Läuft einmal beim Start (Konstruktor, vor der ersten ApplyFilter()) und vor jedem
+        /// Gesundheitscheck (RunHealthCheckAsync) — "Gesundheitscheck &amp; Duplikat-Schutz",
+        /// Nutzerwunsch 2026-09-04: erst bereinigen, dann prüfen, damit nicht doppelt geprüft wird.
+        /// Entfernt zuerst EXAKTE Dateiname-Duplikate, danach "gleiche Distro, andere Version"-
+        /// Duplikate (behält den nicht-vom-Stick-importierten, ggf. neuesten Dateinamen).</summary>
+        private int DeduplicateEntries()
+        {
+            bool changed = false; int removed = 0;
+
+            foreach (int i in DistroMatcher.FindExactDuplicateIndicesByFilename(_db.Entries))
+            { AppendLog(string.Format(LocalizationService.T(Str.Log_ExactDuplicateRemoved), _db.Entries[i].Name, _db.Entries[i].Filename)); _db.Remove(i); changed = true; removed++; }
+
+            var processed = new HashSet<IsoEntry>();
+            var snapshot = _db.Entries.ToList();
+
+            for (int i = 0; i < snapshot.Count; i++)
+            {
+                var a = snapshot[i]; if (processed.Contains(a)) continue;
+                var duplicates = snapshot.Skip(i + 1)
+                    .Where(b => !processed.Contains(b) &&
+                                !string.Equals(a.Filename, b.Filename, StringComparison.OrdinalIgnoreCase) &&
+                                DistroMatcher.AreSameDistro(a, b))
+                    .ToList();
+                if (duplicates.Count == 0) continue;
+
+                var allEntries = new List<IsoEntry> { a }.Concat(duplicates).ToList();
+                var keeper = allEntries.OrderBy(e => e.ImportedFromStick ? 1 : 0).First();
+                var newerDup = allEntries
+                    .Where(e => e != keeper && !string.IsNullOrWhiteSpace(e.Filename) &&
+                                DistroMatcher.IsVersionNewer(
+                                    HttpService.ExtractVersion(e.Filename),
+                                    HttpService.ExtractVersion(string.IsNullOrWhiteSpace(keeper.Filename) ? keeper.Name : keeper.Filename)))
+                    .OrderByDescending(e => HttpService.ExtractVersion(e.Filename))
+                    .FirstOrDefault();
+                if (newerDup != null)
+                {
+                    string oldVer = HttpService.ExtractVersion(string.IsNullOrWhiteSpace(keeper.Filename) ? keeper.Name : keeper.Filename);
+                    string newVer = HttpService.ExtractVersion(newerDup.Filename);
+                    string oldName = keeper.Name;
+                    keeper.Filename = newerDup.Filename;
+                    if (!string.IsNullOrEmpty(oldVer) && !string.IsNullOrEmpty(newVer) && oldVer != newVer)
+                    { int pos = keeper.Name.IndexOf(oldVer, StringComparison.Ordinal); if (pos >= 0) keeper.Name = keeper.Name[..pos] + newVer + keeper.Name[(pos + oldVer.Length)..]; }
+                    AppendLog(string.Format(LocalizationService.T(Str.Log_Merged), oldName, keeper.Name, keeper.Filename));
+                }
+
+                var dupsToRemove = allEntries.Where(e => e != keeper).ToList();
+                for (int di = dupsToRemove.Count - 1; di >= 0; di--)
+                {
+                    var dup = dupsToRemove[di];
+                    int idx = _db.Entries.ToList().IndexOf(dup);
+                    if (idx >= 0) { AppendLog(string.Format(LocalizationService.T(Str.Log_DuplicateRemoved), dup.Name)); _db.Remove(idx); changed = true; removed++; }
+                    processed.Add(dup);
+                }
+                processed.Add(keeper);
+            }
+            if (changed) _db.Save();
+            return removed;
+        }
+
+        /// <summary>Windows-Pendant: MainViewModel.AddImportedEntry() — der eigentliche "Duplikat-
+        /// Schutz" beim Import (Online-Suche/Stick-Fund): erkennt ULM per DistroMatcher.AreSameDistro,
+        /// dass eine "neue" ISO eigentlich einem bereits vorhandenen Katalog-Eintrag entspricht, wird
+        /// KEIN doppelter Eintrag angelegt — stattdessen übernimmt der bestehende Eintrag den neuen
+        /// Dateinamen (nur wenn er nachweislich neuer ist oder noch keiner hinterlegt war, siehe
+        /// DistroMatcher.ShouldAdoptImportedFilename — sonst würde eine ältere, zufällig gefundene
+        /// Datei den Katalog rückwärts degradieren).</summary>
+        public void AddImportedEntry(IsoEntry e)
+        {
+            var existing = _db.Entries.FirstOrDefault(d => DistroMatcher.AreSameDistro(d, e));
+            if (existing != null)
+            {
+                if (DistroMatcher.ShouldAdoptImportedFilename(existing.Filename, e.Filename))
+                {
+                    AppendLog(string.Format(LocalizationService.T(Str.Log_FilenameAdopted), e.Filename, existing.Name));
+                    existing.Filename = e.Filename;
+                    existing.ImportedFromStick = true;
+                    _db.Save();
+                }
+                else
+                    AppendLog(string.Format(LocalizationService.T(Str.Log_FilenameNotAdopted), e.Filename, existing.Name));
+                return;
+            }
+            _db.Add(e);
+            AppendLog(string.Format(LocalizationService.T(Str.Log_EntryAdded), e.Category, e.Name, e.Filename));
+        }
+
         public RelayCommand RefreshCommand { get; }
         public RelayCommand ToggleLanguageCommand { get; }
         public RelayCommand CancelDownloadCommand { get; }
@@ -718,6 +811,9 @@ namespace ULM.Linux.ViewModels
         public async Task RunHealthCheckAsync()
         {
             if (IsBusy || HealthCheckActive) return;
+            // Windows-Pendant: RunHealthCheck() räumt zuerst Duplikate weg, damit nicht doppelt
+            // geprüft wird ("Gesundheitscheck & Duplikat-Schutz", Nutzerwunsch 2026-09-04).
+            if (DeduplicateEntries() > 0) ApplyFilter();
             HealthCheckActive = true;
             HealthCheckPercent = 0;
             var results = new List<VersionCheckEntryResult>();
