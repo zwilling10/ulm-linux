@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# build-release.sh — baut Universal Linux Manager als eine einzige, komplett
-# portable .exe (self-contained, single-file) und legt sie in release/ ab,
-# fertig zum Hochladen als GitHub-Release-Asset.
+# build-release.sh — baut Universal Linux Manager als zwei einzelne, komplett
+# portable Binärdateien (self-contained, single-file — Windows .exe UND Linux-Binary)
+# und legt beide in release/ ab, fertig zum Hochladen als GitHub-Release-Assets.
 #
 # Auf dem Zielsystem wird NICHTS zusätzlich benötigt (keine .NET-Installation,
-# kein Installer) — die .NET-Runtime steckt bereits in der .exe.
+# kein Installer) — die .NET-Runtime steckt bereits in beiden Dateien.
 #
 # Nutzung:
 #   ./build-release.sh                        # normaler Release-Build (nur portable EXE)
@@ -61,6 +61,32 @@ echo "   Läuft ohne Installation auf jedem Windows 10/11 x64 — einfach kopier
 # Skripts) — bewusst kein Glob auf $OUT_DIR, damit Dateien aus früheren lokalen Builds im
 # selben Ordner nicht fälschlich mit in die Prüfsummendatei aufgenommen werden.
 RELEASE_FILES=("$RELEASE_EXE_NAME")
+
+# ── Linux-Binary (immer mitgebaut, kein eigenes Flag nötig — kostet nur ein paar Sekunden
+# zusätzlich zum ohnehin laufenden dotnet-Build). Self-contained/Single-File/
+# InvariantGlobalization stehen schon fest in Linux/ULM.Linux.csproj, hier nur -c/-r explizit
+# wie beim Windows-Build oben. Nutzerwunsch (2026-09-04): Grundlage für das Linux-
+# Selbst-Update-Feature (LinuxSelfUpdateService) — ohne dieses Release-Asset gäbe es dort nichts
+# zum Herunterladen. Läuft auf dem windows-latest-CI-Runner per Cross-Publish, kein
+# Linux-Runner nötig (schon vorher als funktionierend verifiziert, siehe Projekt-Historie).
+PROJECT_LINUX="Linux/ULM.Linux.csproj"
+RID_LINUX="linux-x64"
+PUBLISH_DIR_LINUX="Linux/bin/${CONFIG}/net8.0/${RID_LINUX}/publish"
+RELEASE_LINUX_NAME="UniversalLinuxManager-v${VERSION}-linux-x64"
+
+echo "▶ Baue Linux-Binary (Version ${VERSION}) …"
+dotnet publish "$PROJECT_LINUX" -c "$CONFIG" -r "$RID_LINUX" --self-contained true
+
+if [ ! -f "${PUBLISH_DIR_LINUX}/ulm-linux" ]; then
+    echo "❌ Fehler: ${PUBLISH_DIR_LINUX}/ulm-linux wurde nicht erzeugt." >&2
+    exit 1
+fi
+
+cp "${PUBLISH_DIR_LINUX}/ulm-linux" "${OUT_DIR}/${RELEASE_LINUX_NAME}"
+chmod +x "${OUT_DIR}/${RELEASE_LINUX_NAME}"
+SIZE_LINUX=$(du -h "${OUT_DIR}/${RELEASE_LINUX_NAME}" | cut -f1)
+echo "✅ Fertig: ${OUT_DIR}/${RELEASE_LINUX_NAME}  (${SIZE_LINUX})"
+RELEASE_FILES+=("$RELEASE_LINUX_NAME")
 
 if [ "$DO_ZIP" = "1" ]; then
     ZIP_NAME="UniversalLinuxManager-v${VERSION}-win-x64.zip"

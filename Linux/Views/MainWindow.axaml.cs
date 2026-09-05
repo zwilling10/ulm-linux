@@ -16,6 +16,11 @@ namespace ULM.Linux.Views
         {
             AvaloniaXamlLoader.Load(this);
             DataContextChanged += (_, _) => WireViewModel();
+            // Nutzerwunsch (2026-09-04, 3/3): "automatisches Selbst-Update auch prüfen" — läuft
+            // unabhängig von den anderen Startup-Checks, einmalig nach dem ersten Anzeigen des
+            // Fensters (Opened, nicht Loaded — braucht `this` als Dialog-Owner, das steht bei
+            // Opened sicher bereit).
+            Opened += async (_, _) => await CheckForAppUpdateAsync();
         }
 
         private LinuxMainViewModel? _vm;
@@ -108,6 +113,45 @@ namespace ULM.Linux.Views
             if (_orphanCheckDone) return;
             _orphanCheckDone = true;
             await RunLocalFileMaintenanceAsync();
+        }
+
+        /// <summary>Windows-Pendant: MainWindow.xaml.cs CheckUlmUpdateAsync — bewusst deutlich
+        /// einfacher: fragt EINMAL "jetzt aktualisieren?" (ConfirmDialog) statt eines persistenten
+        /// Banner-Zustands (Available/Downloading/ReadyToInstall), dafür kein neuer UI-Unterbau
+        /// nötig. Siehe LinuxSelfUpdateService für den eigentlichen Check/Download/Ersetzen-Ablauf.</summary>
+        private async Task CheckForAppUpdateAsync()
+        {
+            if (_vm is null) return;
+            // Nicht den Programmstart verlangsamen — Katalog/Stick-Erkennung sollen zuerst sichtbar sein.
+            await Task.Delay(2000);
+
+            LinuxUpdateInfo info;
+            try { info = await LinuxSelfUpdateService.Instance.CheckForUpdateAsync(Constants.AppVersion); }
+            catch { return; } // Update-Check ist rein optional, nie ein Grund für sichtbare Fehler beim Start
+
+            if (!info.HasUpdate) return;
+            _vm.LogEntries.Add(string.Format(LocalizationService.T(Str.Log_NewUlmVersionAvailable), info.LatestVersion, Constants.AppVersion));
+            if (!string.IsNullOrWhiteSpace(info.ReleaseUrl)) _vm.LogEntries.Add(string.Format(LocalizationService.T(Str.Log_ReleaseUrlLine), info.ReleaseUrl));
+
+            bool wantsUpdate = await ConfirmDialog.ShowAsync(this, Constants.AppTitle,
+                string.Format(LocalizationService.T(Str.Log_NewUlmVersionAvailable), info.LatestVersion, Constants.AppVersion)
+                + "\n\n" + LocalizationService.T(Str.Msg_UpdateNow));
+            if (!wantsUpdate) return;
+
+            string? currentExePath = System.Environment.ProcessPath;
+            if (string.IsNullOrEmpty(currentExePath)) { _vm.LogEntries.Add(LocalizationService.T(Str.Msg_UpdateDownloadFailed)); return; }
+
+            _vm.LogEntries.Add(LocalizationService.T(Str.Banner_UpdateDownloading));
+            string tempDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "ULM_Update");
+            string? downloaded;
+            try { downloaded = await LinuxSelfUpdateService.Instance.DownloadUpdateAsync(info, tempDir, progress: null, System.Threading.CancellationToken.None); }
+            catch { downloaded = null; }
+
+            if (downloaded is null) { _vm.LogEntries.Add(LocalizationService.T(Str.Msg_UpdateDownloadFailed)); return; }
+            _vm.LogEntries.Add(string.Format(LocalizationService.T(Str.Banner_UpdateReady), info.LatestVersion));
+
+            try { LinuxSelfUpdateService.Instance.ApplyUpdateAndRestart(downloaded, currentExePath); }
+            catch (System.Exception ex) { _vm.LogEntries.Add(string.Format(LocalizationService.T(Str.Msg_UpdateDownloadFailed)) + $" ({ex.Message})"); }
         }
 
         /// <summary>Windows-Pendant: MainWindow.xaml.cs RunLocalFileMaintenanceAsync — "Datenmüll-

@@ -6,6 +6,7 @@ obj/
 # GitHub-Release-Asset hochgeladen, nicht ins Repo committet)
 release/*.exe
 release/*.zip
+release/*-linux-x64
 release/SHA256SUMS
 
 # Linux-GUI: manueller Publish-Ausgabeordner (dotnet publish -o Linux/publish-out),
