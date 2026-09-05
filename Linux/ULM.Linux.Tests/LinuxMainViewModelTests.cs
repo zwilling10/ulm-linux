@@ -119,6 +119,23 @@ namespace ULM.Linux.Tests
             Assert.Equal("Debian 12", selected[0].Name);
         }
 
+        // Windows-Pendant: MainViewModel.AutoVersionCheckCompleted, treibt dort
+        // RunLocalFileMaintenanceAsync() ("Datenmüll-Schutz", Nutzerwunsch 2026-09-04) — hier nur
+        // der netzwerkfreie Leerlauf-Zweig testbar (leere DB), der Haupt-Erfolgspfad läuft über
+        // AutoVersionCheckWorker mit echten Netzwerkaufrufen, analog zu TriggerAutoVersionCheckAsync
+        // insgesamt (kein bestehender Test dafür, siehe restliche Testdatei).
+        [Fact]
+        public async System.Threading.Tasks.Task TriggerAutoVersionCheckAsync_EmptyDatabase_StillFiresCompletedEvent()
+        {
+            var vm = new LinuxMainViewModel(new FakeIsoDatabaseService(), "/tmp/ulm-linux-vm-test");
+            bool fired = false;
+            vm.AutoVersionCheckCompleted += () => fired = true;
+
+            await vm.TriggerAutoVersionCheckAsync();
+
+            Assert.True(fired);
+        }
+
         [Fact]
         public void CancelDownloadCommand_DisabledWithoutRunningDownload()
         {

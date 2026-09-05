@@ -20,14 +20,20 @@ namespace ULM.Linux.Views
 
         private LinuxMainViewModel? _vm;
         private DownloadProgressDialog? _downloadProgressDialog;
+        private bool _orphanCheckDone;
 
         private void WireViewModel()
         {
-            if (_vm is not null) _vm.HealthCheckCompleted -= OnHealthCheckCompleted;
+            if (_vm is not null) { _vm.HealthCheckCompleted -= OnHealthCheckCompleted; _vm.AutoVersionCheckCompleted -= OnAutoVersionCheckCompleted; }
             _vm = DataContext as LinuxMainViewModel;
             if (_vm is not null)
             {
                 _vm.HealthCheckCompleted += OnHealthCheckCompleted;
+                // Windows-Pendant: MainWindow.xaml.cs' `_vm.AutoVersionCheckCompleted += async () =>
+                // { ... await RunLocalFileMaintenanceAsync(); }` — läuft genau einmal pro Sitzung,
+                // direkt nach dem ersten abgeschlossenen Online-Versionscheck ("Datenmüll-Schutz",
+                // Nutzerwunsch 2026-09-04).
+                _vm.AutoVersionCheckCompleted += OnAutoVersionCheckCompleted;
                 // Windows-Pendant: MainWindow.xaml.cs' `_vm.ConfirmSlowDownload = (name, host) =>
                 // MessageBox.Show(...)`. DownloadWorker ruft das synchron von einem Hintergrund-
                 // Thread (dem jeweils langsamen Download-Slot) auf — InvokeAsync(Func<Task<bool>>)
@@ -95,6 +101,108 @@ namespace ULM.Linux.Views
         {
             var dlg = new DbHealthCheckDialog(results);
             _ = dlg.ShowDialog(this);
+        }
+
+        private async void OnAutoVersionCheckCompleted()
+        {
+            if (_orphanCheckDone) return;
+            _orphanCheckDone = true;
+            await RunLocalFileMaintenanceAsync();
+        }
+
+        /// <summary>Windows-Pendant: MainWindow.xaml.cs RunLocalFileMaintenanceAsync — "Datenmüll-
+        /// Schutz" (Nutzerwunsch 2026-09-04): scannt das Arbeitsverzeichnis nach .iso/.part-Dateien,
+        /// klassifiziert sie (leer/verwaist/unvollständig/zu klein/ok) und bietet die verdächtigen
+        /// zum Löschen an. Bewusst NICHT mit übernommen: der anschließende Windows-Zweig
+        /// "GetVerifiedCompleteEntriesMissingFromStick → OnMissingOnStickDetected" (auf Stick fehlende,
+        /// aber lokal vollständige ISOs automatisch zum Nachkopieren anbieten) — eigenständiges
+        /// Feature, nicht Teil von "Datenmüll-Schutz", separat vormerken falls gewünscht.</summary>
+        private async Task RunLocalFileMaintenanceAsync()
+        {
+            if (_vm is null) return;
+            try
+            {
+                string dir = _vm.DownloadDirectory;
+                if (!System.IO.Directory.Exists(dir)) { _vm.LogEntries.Add(string.Format(LocalizationService.T(Str.Log_WorkFolderNotFound), dir)); return; }
+
+                var dbEntries = IsoDatabaseService.Instance.Entries;
+                var byFilename = new Dictionary<string, IsoEntry>(System.StringComparer.OrdinalIgnoreCase);
+                foreach (var e in dbEntries)
+                    if (!string.IsNullOrWhiteSpace(e.Filename) && !byFilename.ContainsKey(e.Filename))
+                        byFilename[e.Filename] = e;
+
+                var candidates = new List<(string Path, long Size)>();
+                _vm.LogEntries.Add(string.Format(LocalizationService.T(Str.Log_ScanningIsoFolder), dir));
+
+                string[] isoFiles;
+                try { isoFiles = System.IO.Directory.GetFiles(dir, "*.iso", System.IO.SearchOption.AllDirectories); }
+                catch (System.Exception ex) { _vm.LogEntries.Add(string.Format(LocalizationService.T(Str.Log_ScanError), ex.Message)); isoFiles = System.Array.Empty<string>(); }
+                _vm.LogEntries.Add(string.Format(LocalizationService.T(Str.Log_IsoFilesFoundCount), isoFiles.Length));
+
+                foreach (string f in isoFiles)
+                {
+                    string name = System.IO.Path.GetFileName(f);
+                    long size = IsoEntry.GetRobustLength(f);
+
+                    if (size == 0)
+                    { _vm.LogEntries.Add(string.Format(LocalizationService.T(Str.Log_FileEmpty), RelativePath(dir, f))); candidates.Add((f, 0)); continue; }
+
+                    if (!byFilename.TryGetValue(name, out var entry))
+                    { _vm.LogEntries.Add(string.Format(LocalizationService.T(Str.Log_FileOrphaned), RelativePath(dir, f), FmtSize(size))); candidates.Add((f, size)); continue; }
+
+                    long expected = await HttpService.Instance.GetExpectedSizeAsync(entry).ConfigureAwait(true);
+                    if (expected > 0 && size < expected * 0.98)
+                    { _vm.LogEntries.Add(string.Format(LocalizationService.T(Str.Log_FileIncomplete), RelativePath(dir, f), FmtSize(size), FmtSize(expected))); candidates.Add((f, size)); }
+                    else if (expected > 0)
+                    { entry.VerifiedComplete = true; _vm.LogEntries.Add(string.Format(LocalizationService.T(Str.Log_FileComplete), RelativePath(dir, f), FmtSize(size))); }
+                    else if (size < Constants.MinIsoSizeBytes)
+                    { _vm.LogEntries.Add(string.Format(LocalizationService.T(Str.Log_FileTooSmallUnverified), RelativePath(dir, f), FmtSize(size))); candidates.Add((f, size)); }
+                    else
+                    { entry.VerifiedComplete = true; _vm.LogEntries.Add(string.Format(LocalizationService.T(Str.Log_FileOkUnverified), RelativePath(dir, f), FmtSize(size))); }
+                }
+
+                try
+                {
+                    foreach (string f in System.IO.Directory.GetFiles(dir, "*.part", System.IO.SearchOption.AllDirectories))
+                    { long size = IsoEntry.GetRobustLength(f); _vm.LogEntries.Add(string.Format(LocalizationService.T(Str.Log_FileCancelledPartial), RelativePath(dir, f), FmtSize(size))); candidates.Add((f, size)); }
+                }
+                catch (System.Exception ex) { _vm.LogEntries.Add(string.Format(LocalizationService.T(Str.Log_PartSearchError), ex.Message)); }
+
+                if (candidates.Count == 0)
+                {
+                    _vm.LogEntries.Add(LocalizationService.T(Str.Log_NoJunkFound));
+                    return;
+                }
+
+                _vm.LogEntries.Add(string.Format(LocalizationService.T(Str.Log_JunkFilesClassified), candidates.Count));
+                var dlg = new OrphanedDownloadsDialog(candidates);
+                if (await dlg.ShowDialog<bool>(this))
+                {
+                    int deleted = 0, failed = 0;
+                    foreach (string path in dlg.ToDelete)
+                    {
+                        if (IsoEntry.TryDelete(path, line => _vm.LogEntries.Add(line))) { deleted++; _vm.LogEntries.Add(string.Format(LocalizationService.T(Str.Log_Deleted), RelativePath(dir, path))); }
+                        else failed++;
+                    }
+                    _vm.LogEntries.Add(string.Format(LocalizationService.T(Str.Log_FilesDeletedSimpleStatus), deleted)
+                        + (failed > 0 ? string.Format(LocalizationService.T(Str.Log_FailedSuffix), failed) : "") + ".");
+                    if (deleted > 0) _vm.Refresh();
+                }
+                else _vm.LogEntries.Add(string.Format(LocalizationService.T(Str.Log_MaintenanceSkipped), candidates.Count));
+            }
+            catch (System.Exception ex) { _vm.LogEntries.Add(string.Format(LocalizationService.T(Str.Log_FileMaintenanceError), ex.Message)); }
+        }
+
+        private static string RelativePath(string root, string full) =>
+            full.StartsWith(root, System.StringComparison.OrdinalIgnoreCase) ? full[root.Length..].TrimStart('/', '\\') : full;
+
+        private static string FmtSize(long bytes)
+        {
+            if (bytes <= 0) return "0 B";
+            string[] units = { "B", "KB", "MB", "GB" };
+            double v = bytes; int i = 0;
+            while (v >= 1024 && i < units.Length - 1) { v /= 1024; i++; }
+            return i == 0 ? $"{(long)v} B" : $"{v:F1} {units[i]}";
         }
 
         // Arbeitet direkt gegen IsoDatabaseService.Instance statt vm._db (siehe Plan/Windows-

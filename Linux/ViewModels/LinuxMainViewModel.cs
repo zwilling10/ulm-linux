@@ -744,9 +744,14 @@ namespace ULM.Linux.ViewModels
         /// Windows. Live-Zeilen pro Distro landen im Protokoll; ein einzelner ApplyFilter()-Aufruf
         /// erst am Ende (statt pro Eintrag) vermeidet Listen-Geflacker/Auswahlverlust während des
         /// Laufs.</summary>
+        /// <summary>Windows-Pendant: MainViewModel.AutoVersionCheckCompleted — feuert der
+        /// Code-behind (MainWindow.axaml.cs) hier stößt danach einmalig RunLocalFileMaintenanceAsync()
+        /// an ("Datenmüll-Schutz", Nutzerwunsch 2026-09-04).</summary>
+        public event Action? AutoVersionCheckCompleted;
+
         public async Task TriggerAutoVersionCheckAsync()
         {
-            if (_db.Entries.Count == 0) return;
+            if (_db.Entries.Count == 0) { AutoVersionCheckCompleted?.Invoke(); return; }
             OnlineScanActive = true; OnlineScanPercent = 0;
             var worker = new AutoVersionCheckWorker(_db.Entries, _downloadDirectory);
             worker.Progress += (c, t) => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
@@ -763,6 +768,7 @@ namespace ULM.Linux.ViewModels
                 if (updates.Count > 0 || worker.AnyUrlDiscovered || worker.AnyStreakChanged) _db.Save();
                 OnlineScanActive = false; OnlineScanPercent = 100;
                 ApplyFilter();
+                AutoVersionCheckCompleted?.Invoke();
                 tcs.TrySetResult();
             });
             await worker.RunAsync().ConfigureAwait(true);
