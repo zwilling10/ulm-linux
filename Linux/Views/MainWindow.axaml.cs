@@ -40,16 +40,16 @@ namespace ULM.Linux.Views
                 // Nutzerwunsch 2026-09-04).
                 _vm.AutoVersionCheckCompleted += OnAutoVersionCheckCompleted;
                 // Windows-Pendant: MainWindow.xaml.cs' `_vm.ConfirmSlowDownload = (name, host) =>
-                // MessageBox.Show(...)`. DownloadWorker ruft das synchron von einem Hintergrund-
-                // Thread (dem jeweils langsamen Download-Slot) auf — InvokeAsync(Func<Task<bool>>)
-                // marschalliert Öffnen+Warten auf den UI-Thread, GetAwaiter().GetResult() blockiert
-                // dabei nur den aufrufenden Slot-Thread, nicht den UI-Thread selbst (der pumpt die
-                // Dialog-Nachrichtenschleife währenddessen normal weiter).
-                _vm.ConfirmSlowDownload = (name, host) =>
-                    Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => ConfirmDialog.ShowAsync(this,
-                        LocalizationService.T(Str.Msg_SlowDownload_Title),
-                        string.Format(LocalizationService.T(Str.Msg_SlowDownload_Body), name, host)))
-                    .GetAwaiter().GetResult();
+                // MessageBox.Show(...)`. LinuxMainViewModel.DownloadQueueAsync dispatcht bereits
+                // GENAU EINMAL vom Hintergrund-Thread auf den UI-Thread, bevor dieser Delegate
+                // aufgerufen wird — hier also schon garantiert auf dem UI-Thread, deshalb ganz
+                // normales await ohne jedes weitere Dispatcher/GetResult (Nutzerfund 2026-09-05:
+                // eine frühere Fassung mit einem zweiten, hier verschachtelten Dispatcher.UIThread.
+                // InvokeAsync(...).GetAwaiter().GetResult() blockierte den UI-Thread auf sich
+                // selbst und ließ die ganze App beim ersten langsamen Mirror einfrieren).
+                _vm.ConfirmSlowDownload = (name, host) => ConfirmDialog.ShowAsync(this,
+                    LocalizationService.T(Str.Msg_SlowDownload_Title),
+                    string.Format(LocalizationService.T(Str.Msg_SlowDownload_Body), name, host));
 
                 // Windows-Pendant: MainWindow.xaml.cs' DownloadItemProgress/DownloadBatchCompleted/
                 // CopyItemProgress/CopyBatchCompleted-Verdrahtung — einmalig abonniert, reicht nur

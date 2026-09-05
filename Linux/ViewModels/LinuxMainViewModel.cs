@@ -172,10 +172,20 @@ namespace ULM.Linux.ViewModels
         private CopyToUsbWorker? _activeCopyWorker;
 
         /// <summary>Windows-Pendant: MainWindow.xaml.cs' `_vm.ConfirmSlowDownload = (name, host) =>
-        /// MessageBox.Show(...)`. Die View setzt diesen Delegate (braucht ein Fenster als Owner);
-        /// DownloadQueueAsync ruft ihn über worker.ConfirmSlowDownloadAnyway synchron vom
-        /// Hintergrund-Thread des jeweiligen Download-Slots auf.</summary>
-        public Func<string, string, bool>? ConfirmSlowDownload;
+        /// MessageBox.Show(...)`. Die View setzt diesen Delegate (braucht ein Fenster als Owner).
+        /// ASYNC (Task&lt;bool&gt;, nicht bool) — Nutzerfund (2026-09-05): eine frühere synchrone
+        /// Fassung ließ die komplette UI einfrieren, sobald ein Mirror den Geschwindigkeits-
+        /// Schwellwert unterschritt. Root Cause: worker.ConfirmSlowDownloadAnyway lief bereits über
+        /// Dispatcher.UIThread.InvokeAsync(...).GetAwaiter().GetResult() vom Hintergrund-Thread auf
+        /// den UI-Thread — der DORT ausgeführte Delegate versuchte dann selbst NOCH EINMAL
+        /// Dispatcher.UIThread.InvokeAsync(...).GetAwaiter().GetResult() (für ConfirmDialog.ShowAsync),
+        /// diesmal aber BEREITS AUF DEM UI-THREAD sitzend — ein Thread kann nicht auf die eigene,
+        /// noch in seiner eigenen Warteschlange steckende Fortsetzung warten (Selbst-Deadlock,
+        /// klassisches "blockierend auf sich selbst wartender UI-Thread"-Muster). Der Fix unten
+        /// (Dispatcher.UIThread.Post + TaskCompletionSource) dispatcht nur EINMAL, blockiert dabei
+        /// ausschließlich den echten Hintergrund-Thread (sicher), der UI-Thread bleibt frei und
+        /// kann den Dialog normal per await anzeigen.</summary>
+        public Func<string, string, Task<bool>>? ConfirmSlowDownload;
 
         // ── Für das Windows-parallele DownloadProgressDialog im Code-behind (braucht ein Owner-
         // Fenster, siehe BtnDownload_Click) — Windows-Pendant: MainViewModel.DownloadItemProgress/
@@ -526,8 +536,27 @@ namespace ULM.Linux.ViewModels
             ApplyFilter();
         }
 
+        /// <summary>Zwischengespeicherte letzte Stick-Dateiliste (Nutzerfund 2026-09-04:
+        /// "Auf dem Stick"-Spalte zeigte "Nein" für eine Distro, die nachweislich bereits
+        /// vollständig auf dem Stick lag). Root Cause: ApplyStickResults lief bisher nur bei einem
+        /// echten Scan-Ereignis (neu erkannter Stick / direkt nach einer Kopie) — wurde
+        /// zwischenzeitlich z.B. erst durch einen Download IsoEntry.Filename gesetzt/geändert
+        /// (URL-Auflösung setzt den Dateinamen oft erst zur Laufzeit), blieb die Klassifizierung
+        /// bis zum nächsten echten Scan (der auf demselben Stick evtl. nie wieder auslöst, siehe
+        /// _lastScannedDeviceNode-Schutz in PollDrivesAsync) auf dem alten Stand hängen — obwohl
+        /// die Datei objektiv längst da war. Fix: die zuletzt gelesene Dateiliste bleibt hier
+        /// gecacht; ApplyFilter() wendet sie bei jedem Aufruf erneut an (rein lokal, kein I/O/
+        /// Netzwerk) — jede Änderung an Entry.Filename wirkt sich damit sofort aus, ohne auf den
+        /// nächsten echten (I/O-lastigen) Stick-Scan warten zu müssen. Null = in dieser Sitzung
+        /// noch nie erfolgreich gescannt (dann NICHT reklassifizieren, sonst würde vor dem ersten
+        /// Scan fälschlich alles auf "Missing" gesetzt).</summary>
+        private IReadOnlyList<UsbService.StickIso>? _lastStickListing;
+
         private void ApplyFilter()
         {
+            if (SelectedDrive?.MountPoint is not null && _lastStickListing is not null)
+                ApplyStickResults(_lastStickListing);
+
             Rows.Clear();
             IEnumerable<IsoEntry> entries = _db.Entries;
             if (SelectedCategory?.Key is not null)
@@ -602,9 +631,24 @@ namespace ULM.Linux.ViewModels
             worker.LogMessage += msg => Avalonia.Threading.Dispatcher.UIThread.Post(() => AppendLog(msg));
             // _ui.Invoke-Äquivalent: blockiert nur den EINEN Hintergrund-Slot, der gerade langsam
             // ist, bis der Anwender geantwortet hat — die anderen parallelen Slots laufen weiter
-            // (siehe DownloadWorker.ConfirmSlowDownloadAnyway-Kommentar in Workers.cs).
+            // (siehe DownloadWorker.ConfirmSlowDownloadAnyway-Kommentar in Workers.cs). Dispatcher.
+            // UIThread.Post (fire-and-forget) statt InvokeAsync(...).GetAwaiter().GetResult() —
+            // GENAU EIN Dispatch auf den UI-Thread, der dort per await ganz normal weiterläuft;
+            // die TaskCompletionSource überträgt das Ergebnis zurück auf DIESEN Hintergrund-Thread,
+            // dessen GetAwaiter().GetResult() sicher ist (kein UI-Thread). Siehe ConfirmSlowDownload-
+            // Kommentar oben für den Deadlock, den die vorherige doppelt-verschachtelte Fassung
+            // verursacht hat (Nutzerfund 2026-09-05: komplettes Einfrieren beim ersten langsamen Mirror).
             worker.ConfirmSlowDownloadAnyway = (name, host) =>
-                Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => ConfirmSlowDownload?.Invoke(name, host) ?? false).GetAwaiter().GetResult();
+            {
+                var tcs = new TaskCompletionSource<bool>();
+                Avalonia.Threading.Dispatcher.UIThread.Post(async () =>
+                {
+                    bool result = false;
+                    try { if (ConfirmSlowDownload is not null) result = await ConfirmSlowDownload(name, host).ConfigureAwait(true); }
+                    finally { tcs.TrySetResult(result); }
+                });
+                return tcs.Task.GetAwaiter().GetResult();
+            };
             worker.OverallProgress += (pct, detail) => Avalonia.Threading.Dispatcher.UIThread.Post(() => { DownloadPercent = pct; DownloadStatus = detail; });
             worker.SlotUpdated += p => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
             {
@@ -1022,6 +1066,7 @@ namespace ULM.Linux.ViewModels
             try
             {
                 var (found, _) = await UsbService.Instance.ScanStickVerifiedAsync(mountPoint, _db.Entries).ConfigureAwait(true);
+                _lastStickListing = found;
                 ApplyStickResults(found);
                 ApplyFilter();
             }
