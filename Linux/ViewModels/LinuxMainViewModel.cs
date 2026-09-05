@@ -172,6 +172,14 @@ namespace ULM.Linux.ViewModels
         /// Hintergrund-Thread des jeweiligen Download-Slots auf.</summary>
         public Func<string, string, bool>? ConfirmSlowDownload;
 
+        // ── Für das Windows-parallele DownloadProgressDialog im Code-behind (braucht ein Owner-
+        // Fenster, siehe BtnDownload_Click) — Windows-Pendant: MainViewModel.DownloadItemProgress/
+        // DownloadBatchCompleted/CopyItemProgress/CopyBatchCompleted (gleiche Namen/Signaturen). ──
+        public event Action<string, int, string, bool>? DownloadItemProgress;
+        public event Action<int, int>? DownloadBatchCompleted;
+        public event Action<string, int, string>? CopyItemProgress;
+        public event Action<int>? CopyBatchCompleted;
+
         private string _copyStatus = string.Empty;
         public string CopyStatus
         {
@@ -506,7 +514,10 @@ namespace ULM.Linux.ViewModels
                 Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => ConfirmSlowDownload?.Invoke(name, host) ?? false).GetAwaiter().GetResult();
             worker.OverallProgress += (pct, detail) => Avalonia.Threading.Dispatcher.UIThread.Post(() => { DownloadPercent = pct; DownloadStatus = detail; });
             worker.SlotUpdated += p => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
-                UpdateRowLiveStatus(p.IsoName, $"{p.Percent}% {p.Status}", p.CanRequestFasterMirror));
+            {
+                UpdateRowLiveStatus(p.IsoName, $"{p.Percent}% {p.Status}", p.CanRequestFasterMirror);
+                DownloadItemProgress?.Invoke(p.IsoName, p.Percent, p.Status, p.CanRequestFasterMirror);
+            });
             worker.ItemCompleted += (entry, success) =>
             {
                 if (success) Avalonia.Threading.Dispatcher.UIThread.Post(() => entry.IsSelected = false);
@@ -521,6 +532,7 @@ namespace ULM.Linux.ViewModels
             // einen längst fertigen Worker, während die Kopier-Phase (falls sie folgt) über
             // _activeCopyWorker läuft. Siehe CancelDownloadCommand-Kommentar oben.
             _activeDownloadWorker = null;
+            DownloadBatchCompleted?.Invoke(okCount, failedCount);
 
             int copyOk = 0, copyFailed = 0;
             if (copyAfter && okCount > 0 && mountPoint is not null)
@@ -547,7 +559,11 @@ namespace ULM.Linux.ViewModels
             _activeCopyWorker = worker;
             CancelDownloadCommand.RaiseCanExecuteChanged();
             worker.Progress += (pct, detail) => Avalonia.Threading.Dispatcher.UIThread.Post(() => { DownloadPercent = pct; CopyStatus = detail; });
-            worker.FileProgress += (name, pct, status) => Avalonia.Threading.Dispatcher.UIThread.Post(() => UpdateRowLiveStatus(name, $"{pct}% {status}", false));
+            worker.FileProgress += (name, pct, status) => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            {
+                UpdateRowLiveStatus(name, $"{pct}% {status}", false);
+                CopyItemProgress?.Invoke(name, pct, status);
+            });
             worker.Completed += (ok, copiedCount, _, message) => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
             {
                 CopyStatus = message;
@@ -561,6 +577,7 @@ namespace ULM.Linux.ViewModels
                         IsoEntry.TryDelete(System.IO.Path.Combine(_downloadDirectory, e.Filename), line => AppendLog(line));
                 _db.Save();
                 _activeCopyWorker = null;
+                CopyBatchCompleted?.Invoke(copiedCount);
                 tcs.TrySetResult((copiedCount, toCopy.Count - copiedCount));
             });
             _ = worker.RunAsync();

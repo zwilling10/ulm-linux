@@ -19,6 +19,7 @@ namespace ULM.Linux.Views
         }
 
         private LinuxMainViewModel? _vm;
+        private DownloadProgressDialog? _downloadProgressDialog;
 
         private void WireViewModel()
         {
@@ -38,7 +39,33 @@ namespace ULM.Linux.Views
                         LocalizationService.T(Str.Msg_SlowDownload_Title),
                         string.Format(LocalizationService.T(Str.Msg_SlowDownload_Body), name, host)))
                     .GetAwaiter().GetResult();
+
+                // Windows-Pendant: MainWindow.xaml.cs' DownloadItemProgress/DownloadBatchCompleted/
+                // CopyItemProgress/CopyBatchCompleted-Verdrahtung — einmalig abonniert, reicht nur
+                // durch, wenn _downloadProgressDialog gerade offen ist (OpenProgressDialog).
+                _vm.DownloadItemProgress += (name, pct, status, canFaster) => _downloadProgressDialog?.UpdateDownload(name, pct, status, canFaster);
+                _vm.CopyItemProgress     += (name, pct, status) => _downloadProgressDialog?.UpdateCopy(name, pct, status);
+                _vm.DownloadBatchCompleted += (ok, failed) => _downloadProgressDialog?.SetOverallComplete(
+                    string.Format(LocalizationService.T(Str.Log_DownloadedCountStatus), ok, ok + failed));
+                // Läuft im Kopier-Modus NACH DownloadBatchCompleted und überschreibt dessen
+                // Zusammenfassung mit dem endgültigen Ergebnis — Windows-Pendant macht dasselbe
+                // (dort inline über MainWindow.xaml.cs, hier über dieselben geteilten Log_*-Werte
+                // wie StartCopyToStick/CopySelectedToStickAsync statt hartcodiertem Text).
+                _vm.CopyBatchCompleted += count => _downloadProgressDialog?.SetOverallComplete(
+                    count > 0 ? string.Format(LocalizationService.T(Str.Log_CopiedToStickStatus), count, _vm.SelectedDrive?.MountPoint)
+                              : LocalizationService.T(Str.Log_NothingToCopyStatus));
             }
+        }
+
+        private void OpenProgressDialog(IEnumerable<string> names, bool hasDownload, bool hasCopy)
+        {
+            _downloadProgressDialog?.Close();
+            var dlg = new DownloadProgressDialog(names, hasDownload, hasCopy);
+            dlg.CancelRequested += () => _vm?.CancelDownloadCommand.Execute(null);
+            dlg.FasterMirrorRequested += name => _vm?.RequestFasterMirrorCommand.Execute(name);
+            dlg.Closed += (_, _) => _downloadProgressDialog = null;
+            _downloadProgressDialog = dlg;
+            dlg.Show(this);
         }
 
         // Bewusst Code-behind statt reines MVVM-Command (gleiches Muster wie Windows'
@@ -163,6 +190,7 @@ namespace ULM.Linux.Views
                 slots = chosen.Value;
             }
 
+            OpenProgressDialog(queue.Select(q => q.Name), hasDownload: true, hasCopy: copy);
             await _vm.DownloadQueueAsync(queue, copy ? mountPoint : null, copy, del, slots);
         }
 
