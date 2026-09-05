@@ -1,5 +1,10 @@
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
+using ULM.Core.Models;
+using ULM.Core.Services;
 using ULM.Infrastructure;
 using ULM.Linux.ViewModels;
 
@@ -99,6 +104,107 @@ namespace ULM.Linux.Views
             if (dlg.ToDownload.Count > 0)
                 foreach (var row in _vm.Rows)
                     if (dlg.ToDownload.Contains(row.Entry)) row.IsSelected = true;
+        }
+
+        /// <summary>Windows-Pendant: MainWindow.xaml.cs BtnDownload_Click — Nutzerwunsch
+        /// (2026-09-04): "genauso wie Windows" statt der zuvor gebauten Inline-Checkboxen/
+        /// NumericUpDown-Lösung. Klärt Kopiermodus/Freispeicher/parallele Slots per Dialogkette
+        /// (braucht dieses Fenster als Owner, daher Code-behind statt VM-Command — wie unter
+        /// Windows) und ruft danach DownloadQueueAsync mit dem geklärten Auftrag auf.</summary>
+        private async void BtnDownload_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+        {
+            if (_vm is null || _vm.IsBusy) return;
+            List<IsoEntry> queue = _vm.GetSelectedEntries();
+            if (queue.Count == 0)
+            {
+                await InfoDialog.ShowAsync(this, Constants.AppTitle, LocalizationService.T(Str.Msg_SelectAtLeastOne));
+                return;
+            }
+
+            var drive = _vm.SelectedDrive;
+            string? mountPoint = drive?.MountPoint;
+            bool copy = false, del = false;
+            if (mountPoint is not null)
+            {
+                bool? mode = await ConfirmDialog.ShowYesNoCancelAsync(this,
+                    LocalizationService.T(Str.Msg_DownloadMode_Title),
+                    string.Format(LocalizationService.T(Str.Msg_DownloadMode_Body), mountPoint));
+                if (mode is null) return;
+                copy = mode == true;
+
+                if (copy && drive?.IsVentoyInstalled != true)
+                {
+                    bool proceedNoVentoy = await ConfirmDialog.ShowAsync(this,
+                        LocalizationService.T(Str.Msg_NoVentoy_Title),
+                        string.Format(LocalizationService.T(Str.Msg_NoVentoy_Body), mountPoint));
+                    if (!proceedNoVentoy) return;
+                }
+
+                if (copy)
+                    del = await ConfirmDialog.ShowAsync(this,
+                        LocalizationService.T(Str.Msg_DeleteFiles_Title),
+                        LocalizationService.T(Str.Msg_DeleteLocalAfterCopy_AfterCopy));
+            }
+            else
+            {
+                bool proceedNoStick = await ConfirmDialog.ShowAsync(this,
+                    LocalizationService.T(Str.Msg_NoStick_Title),
+                    string.Format(LocalizationService.T(Str.Msg_NoStick_Body), _vm.DownloadDirectory));
+                if (!proceedNoStick) return;
+            }
+
+            if (!await ConfirmEnoughFreeSpaceAsync(queue, copy ? mountPoint : null)) return;
+
+            int slots = 1;
+            if (queue.Count > 1)
+            {
+                int? chosen = await DownloadSlotsDialog.ShowAsync(this, queue.Count, Constants.MaxParallelSlots);
+                if (chosen is null) return;
+                slots = chosen.Value;
+            }
+
+            await _vm.DownloadQueueAsync(queue, copy ? mountPoint : null, copy, del, slots);
+        }
+
+        /// <summary>Windows-Pendant: MainWindow.xaml.cs ConfirmEnoughFreeSpaceAsync — summiert die
+        /// online ermittelbare Größe aller ausgewählten Distros und vergleicht sie vorab gegen den
+        /// freien Speicher am Ziel (Arbeitsverzeichnis, plus Stick falls kopiert wird), statt erst
+        /// mitten im Download an fehlendem Platz zu scheitern. Best-effort: online nicht
+        /// ermittelbare Größen (-1) fließen nicht in die Summe ein, blockieren den Download aber
+        /// auch nicht deswegen.</summary>
+        private async Task<bool> ConfirmEnoughFreeSpaceAsync(List<IsoEntry> queue, string? stickMountPoint)
+        {
+            long[] sizes = await Task.WhenAll(queue.Select(e => HttpService.Instance.GetExpectedSizeAsync(e))).ConfigureAwait(true);
+            long totalBytes = sizes.Where(s => s > 0).Sum();
+            int unknownCount = sizes.Count(s => s <= 0);
+            if (totalBytes == 0) return true;
+
+            async Task<bool> WarnIfTooSmallAsync(string label, string root)
+            {
+                double freeBytes;
+                try
+                {
+                    var d = new System.IO.DriveInfo(root);
+                    if (!d.IsReady) return true;
+                    freeBytes = d.AvailableFreeSpace;
+                }
+                catch { return true; }
+                if (totalBytes <= freeBytes) return true;
+
+                static string Gb(double b) => (b / 1_073_741_824.0).ToString("F2") + " GB";
+                string msg = string.Format(LocalizationService.T(Str.Msg_FreeSpace_Body1), queue.Count, Gb(totalBytes))
+                    + (unknownCount > 0 ? string.Format(LocalizationService.T(Str.Msg_FreeSpace_Body2), unknownCount) : "")
+                    + string.Format(LocalizationService.T(Str.Msg_FreeSpace_Body3), label, Gb(freeBytes));
+                return await ConfirmDialog.ShowAsync(this, LocalizationService.T(Str.Msg_FreeSpace_Title), msg);
+            }
+
+            if (_vm is null) return true;
+            if (!await WarnIfTooSmallAsync(string.Format(LocalizationService.T(Str.Msg_FreeSpace_LabelWorkDir), _vm.DownloadDirectory), _vm.DownloadDirectory))
+                return false;
+            if (!string.IsNullOrEmpty(stickMountPoint) &&
+                !await WarnIfTooSmallAsync(string.Format(LocalizationService.T(Str.Msg_FreeSpace_LabelStick), stickMountPoint), stickMountPoint))
+                return false;
+            return true;
         }
     }
 }

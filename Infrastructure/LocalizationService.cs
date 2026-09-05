@@ -1120,9 +1120,6 @@ namespace ULM.Infrastructure
 
             [Str.Linux_Log_StickScanFailed] = "Stick-Scan fehlgeschlagen: {0}",
 
-            [Str.Linux_Download_Slots]              = "Parallel:",
-            [Str.Linux_Download_CopyAfter]           = "Danach auf Stick kopieren",
-            [Str.Linux_Download_DeleteAfter]         = "Danach lokal löschen",
             [Str.Linux_Download_FasterMirrorTooltip] = "Schnelleren Mirror versuchen",
         };
 
@@ -2194,9 +2191,6 @@ namespace ULM.Infrastructure
 
             [Str.Linux_Log_StickScanFailed] = "Stick scan failed: {0}",
 
-            [Str.Linux_Download_Slots]              = "Parallel:",
-            [Str.Linux_Download_CopyAfter]           = "Copy to stick afterwards",
-            [Str.Linux_Download_DeleteAfter]         = "Delete locally afterwards",
             [Str.Linux_Download_FasterMirrorTooltip] = "Try a faster mirror",
         };
     }

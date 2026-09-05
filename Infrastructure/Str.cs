@@ -565,7 +565,6 @@ namespace ULM.Infrastructure
 
         Linux_Log_StickScanFailed,
 
-        Linux_Download_Slots, Linux_Download_CopyAfter, Linux_Download_DeleteAfter,
         Linux_Download_FasterMirrorTooltip,
     }
 }

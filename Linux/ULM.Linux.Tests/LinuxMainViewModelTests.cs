@@ -89,31 +89,34 @@ namespace ULM.Linux.Tests
         // den echten, plattformneutralen DownloadWorker (Core/Workers/Workers.cs) statt eines
         // injizierbaren Test-Delegates — wie beim Windows-Pendant MainViewModel.StartDownload()
         // (siehe ULM.Tests/DownloadWorkerTests.cs, testet dort ebenfalls nur die reine
-        // Worker-Logik, nicht den vollen netzwerkbehafteten Ablauf). Die folgenden Tests decken
-        // deshalb die davor liegende, netzwerkfreie Auswahl-/Leerlauf-Logik ab statt eines echten
-        // Downloads.
+        // Worker-Logik, nicht den vollen netzwerkbehafteten Ablauf). Seit der Windows-Parität-Phase
+        // (2026-09-04, zweiter Durchgang) klärt der Code-behind (MainWindow.axaml.cs
+        // BtnDownload_Click, braucht ein Owner-Fenster für die Dialogkette) die Warteschlange VOR
+        // dem Aufruf — DownloadQueueAsync bekommt sie fertig übergeben und ist dadurch bewusst kein
+        // Ort für die "nichts ausgewählt"-Meldung mehr (die zeigt jetzt InfoDialog im Code-behind).
 
         [Fact]
-        public async System.Threading.Tasks.Task DownloadQueueAsync_NothingSelected_SetsSelectAtLeastOneStatus()
+        public async System.Threading.Tasks.Task DownloadQueueAsync_EmptyQueue_DoesNothing()
         {
             var vm = new LinuxMainViewModel(BuildDb(), "/tmp/ulm-linux-vm-test");
 
-            await vm.DownloadQueueAsync();
+            await vm.DownloadQueueAsync(new System.Collections.Generic.List<IsoEntry>(), null, false, false, 1);
 
-            Assert.Equal(LocalizationService.T(Str.Msg_SelectAtLeastOne), vm.DownloadStatus);
+            Assert.Equal(string.Empty, vm.DownloadStatus);
             Assert.False(vm.IsBusy);
         }
 
         [Fact]
-        public void DownloadSlots_ClampedToValidRange()
+        public void GetSelectedEntries_ReturnsOnlyCheckedEntries()
         {
-            var vm = new LinuxMainViewModel(BuildDb(), "/tmp/ulm-linux-vm-test");
+            var db = BuildDb();
+            var vm = new LinuxMainViewModel(db, "/tmp/ulm-linux-vm-test");
+            vm.Rows.First(r => r.Name == "Debian 12").IsSelected = true;
 
-            vm.DownloadSlots = 0;
-            Assert.Equal(1, vm.DownloadSlots);
+            var selected = vm.GetSelectedEntries();
 
-            vm.DownloadSlots = 999;
-            Assert.Equal(vm.MaxDownloadSlots, vm.DownloadSlots);
+            Assert.Single(selected);
+            Assert.Equal("Debian 12", selected[0].Name);
         }
 
         [Fact]

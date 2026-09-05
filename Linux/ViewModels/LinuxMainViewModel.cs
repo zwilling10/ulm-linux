@@ -42,11 +42,9 @@ namespace ULM.Linux.ViewModels
 
             RefreshCommand        = new RelayCommand(Refresh);
             ToggleLanguageCommand = new RelayCommand(ToggleLanguage);
-            // CanExecute prüft bewusst nicht mehr "SelectedRow is not null" — die Warteschlange
-            // (Windows-Pendant: GetSelectedEntries()) kann jetzt auch nur aus angehakten Zeilen
-            // bestehen, ohne dass eine davon zusätzlich als SelectedRow markiert ist. Eine leere
-            // Warteschlange meldet DownloadQueueAsync() selbst über DownloadStatus zurück.
-            DownloadCommand        = new RelayCommand(() => _ = DownloadQueueAsync(), () => !IsBusy);
+            // Windows-Pendant: kein gebundenes DownloadCommand — BtnDownload_Click im Code-behind
+            // (MainWindow.axaml.cs) klärt die Dialogkette (Kopiermodus/Freispeicher/Slots) und ruft
+            // DownloadQueueAsync(queue, ...) direkt auf, da die Dialoge ein Owner-Fenster brauchen.
             // Nutzerfund (2026-09-04): Klick auf "Abbrechen" während der Kopier-Pipeline-Phase
             // (nach dem Download) tat nichts — _activeDownloadWorker zeigt dort noch auf den
             // längst FERTIGEN DownloadWorker, der laufende CopyToUsbWorker (RunCopyBatchAsync)
@@ -71,6 +69,11 @@ namespace ULM.Linux.ViewModels
 
             ApplyFilter();
         }
+
+        /// <summary>Für die Windows-parallele Download-Dialogkette im Code-behind (Freispeicher-
+        /// Check, "kein Stick"-Meldung) — Windows-Pendant: AppPaths.Instance.DownloadDir, dort
+        /// direkt statisch erreichbar, hier über den ViewModel-Konstruktorparameter gekapselt.</summary>
+        public string DownloadDirectory => _downloadDirectory;
 
         public ObservableCollection<CategoryOption> Categories { get; }
         public ObservableCollection<LinuxIsoRow> Rows { get; }
@@ -135,7 +138,6 @@ namespace ULM.Linux.ViewModels
         // verhindert, dass dieselbe Luecke bei einem kuenftigen neuen Command wieder entsteht.
         private void RaiseAllCommandsCanExecuteChanged()
         {
-            DownloadCommand.RaiseCanExecuteChanged();
             CancelDownloadCommand.RaiseCanExecuteChanged();
             CopyToStickCommand.RaiseCanExecuteChanged();
             RequestVentoyInstallCommand.RaiseCanExecuteChanged();
@@ -163,33 +165,6 @@ namespace ULM.Linux.ViewModels
 
         private DownloadWorker? _activeDownloadWorker;
         private CopyToUsbWorker? _activeCopyWorker;
-
-        private int _downloadSlots = 1;
-        /// <summary>Windows-Pendant: DownloadSlotsDialog-Auswahl — hier statt eines eigenen Modal-
-        /// Dialogs ein NumericUpDown direkt in der Aktionsleiste (schlanker, gleiche Funktion).</summary>
-        public int DownloadSlots
-        {
-            get => _downloadSlots;
-            set => SetField(ref _downloadSlots, Math.Clamp(value, 1, Constants.MaxParallelSlots));
-        }
-
-        public int MaxDownloadSlots => Constants.MaxParallelSlots;
-
-        private bool _copyAfterDownload;
-        /// <summary>Windows-Pendant: die "Ja"-Antwort auf die YesNoCancel-MessageBox "Nach dem
-        /// Download auf den Stick kopieren?" — hier als Checkbox statt Dialogkette, siehe Plan.</summary>
-        public bool CopyAfterDownload
-        {
-            get => _copyAfterDownload;
-            set => SetField(ref _copyAfterDownload, value);
-        }
-
-        private bool _deleteAfterCopy;
-        public bool DeleteAfterCopy
-        {
-            get => _deleteAfterCopy;
-            set => SetField(ref _deleteAfterCopy, value);
-        }
 
         /// <summary>Windows-Pendant: MainWindow.xaml.cs' `_vm.ConfirmSlowDownload = (name, host) =>
         /// MessageBox.Show(...)`. Die View setzt diesen Delegate (braucht ein Fenster als Owner);
@@ -326,9 +301,6 @@ namespace ULM.Linux.ViewModels
         public string StatusIdleLabel         => LocalizationService.T(Str.Linux_Status_Idle);
         public string ActionDownloadLabel     => LocalizationService.T(Str.Linux_Actions_Download);
         public string ActionCancelDownloadLabel => LocalizationService.T(Str.Db_Btn_Cancel);
-        public string DownloadSlotsLabel      => LocalizationService.T(Str.Linux_Download_Slots);
-        public string CopyAfterDownloadLabel  => LocalizationService.T(Str.Linux_Download_CopyAfter);
-        public string DeleteAfterCopyLabel    => LocalizationService.T(Str.Linux_Download_DeleteAfter);
         public string FasterMirrorTooltip     => LocalizationService.T(Str.Linux_Download_FasterMirrorTooltip);
         public string ActionCheckUpdatesLabel => LocalizationService.T(Str.Linux_Actions_CheckUpdates);
         public string ActionCheckUrlsLabel    => LocalizationService.T(Str.Linux_Actions_CheckUrls);
@@ -424,7 +396,6 @@ namespace ULM.Linux.ViewModels
 
         public RelayCommand RefreshCommand { get; }
         public RelayCommand ToggleLanguageCommand { get; }
-        public RelayCommand DownloadCommand { get; }
         public RelayCommand CancelDownloadCommand { get; }
         public RelayCommand<string> RequestFasterMirrorCommand { get; }
         public RelayCommand CopyToStickCommand { get; }
@@ -497,40 +468,33 @@ namespace ULM.Linux.ViewModels
             _selectedCategory = Categories.First(c => c.Key == previousKey);
         }
 
+        /// <summary>Windows-Pendant: MainViewModel.GetSelectedEntries() — die per Zeilen-Checkbox
+        /// angehakten Einträge, unabhängig von einer zusätzlichen SelectedRow-Markierung.</summary>
+        public List<IsoEntry> GetSelectedEntries() => _db.Entries.Where(e => e.IsSelected).ToList();
+
         /// <summary>Windows-Pendant: MainViewModel.StartDownload() + DownloadWorker (Core/Workers/
         /// Workers.cs, bereits plattformneutral in ULM.Linux.csproj verlinkt, kein Neuschreiben).
-        /// Ersetzt das bisherige DownloadSelectedAsync (nur Einzel-Download über einen injizierten
-        /// Test-Delegate) durch den echten, mehrfähigen Worker: Warteschlange (angehakte Zeilen,
-        /// Fallback SelectedRow), parallele Slots, Mirror-Fallback/-Race, "schneller"-Anfrage,
-        /// Bestätigung bei dauerhaft langsamem Download, Abbrechen. Die Kopier-Pipeline danach läuft
-        /// bewusst SEQUENZIELL (erst alle Downloads fertig, dann Batch-Kopie) statt wie unter
-        /// Windows als Channel-basiertes Streaming (Kopie startet dort schon für einzelne fertige
-        /// Downloads, während andere noch laufen) — funktional gleichwertig für alle 7 in der
-        /// Lückenanalyse genannten Punkte, nur ohne diese Überlappungs-Optimierung (siehe
-        /// Brainstorming 2026-09-04, bewusst zurückgestellt).</summary>
-        public async Task DownloadQueueAsync()
+        /// Die Warteschlangen-/Kopiermodus-/Slot-Klärung passiert wie unter Windows VOR diesem
+        /// Aufruf im Code-behind (MainWindow.axaml.cs BtnDownload_Click, braucht ein Owner-Fenster
+        /// für die Dialogkette) — diese Methode führt nur noch den bereits geklärten Auftrag aus,
+        /// exakt wie MainViewModel.StartDownload(queue, drive, copyAfter, deleteAfter, slots).
+        /// Die Kopier-Pipeline danach läuft bewusst SEQUENZIELL (erst alle Downloads fertig, dann
+        /// Batch-Kopie) statt wie unter Windows als Channel-basiertes Streaming (Kopie startet dort
+        /// schon für einzelne fertige Downloads, während andere noch laufen) — funktional
+        /// gleichwertig, nur ohne diese Überlappungs-Optimierung (siehe Brainstorming 2026-09-04,
+        /// bewusst zurückgestellt).</summary>
+        public async Task DownloadQueueAsync(List<IsoEntry> queue, string? mountPoint, bool copyAfter, bool deleteAfter, int slots)
         {
-            if (IsBusy) return;
-            List<IsoEntry> queue = _db.Entries.Where(e => e.IsSelected).ToList();
-            if (queue.Count == 0 && SelectedRow is not null) queue.Add(SelectedRow.Entry);
-            if (queue.Count == 0)
-            {
-                DownloadStatus = LocalizationService.T(Str.Msg_SelectAtLeastOne);
-                return;
-            }
-
-            string? mountPoint = SelectedDrive?.MountPoint;
-            bool copyAfter = mountPoint is not null && CopyAfterDownload;
-            bool deleteAfter = copyAfter && DeleteAfterCopy;
+            if (IsBusy || queue.Count == 0) return;
 
             IsBusy = true;
             DownloadPercent = 0;
             DownloadStatus = string.Empty;
-            AppendLog(string.Format(LocalizationService.T(Str.Log_DownloadStarted), queue.Count, DownloadSlots)
+            AppendLog(string.Format(LocalizationService.T(Str.Log_DownloadStarted), queue.Count, slots)
                 + (mountPoint is null ? "" : string.Format(LocalizationService.T(Str.Log_ToDriveSuffix), mountPoint)));
             foreach (var e in queue) AppendLog(string.Format(LocalizationService.T(Str.Log_QueueItem), e.Name));
 
-            var worker = new DownloadWorker(queue, DownloadSlots, _downloadDirectory, _db, mountPoint ?? string.Empty, copyAfter, deleteAfter);
+            var worker = new DownloadWorker(queue, slots, _downloadDirectory, _db, mountPoint ?? string.Empty, copyAfter, deleteAfter);
             _activeDownloadWorker = worker;
             CancelDownloadCommand.RaiseCanExecuteChanged();
 

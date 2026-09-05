@@ -38,5 +38,21 @@ namespace ULM.Linux.Views
 
         public static async Task<bool> ShowAsync(Window owner, string title, string message) =>
             await new ConfirmDialog(title, message).ShowDialog<bool>(owner);
+
+        private ConfirmDialog(string title, string message, bool withCancel) : this(title, message)
+        {
+            if (!withCancel) return;
+            // Dritter Button für den Windows-YesNoCancel-Fall (z.B. "Nach dem Download auf den
+            // Stick kopieren?" — Abbrechen bricht den gesamten Download ab, nicht nur die Frage).
+            var btns = (StackPanel)((StackPanel)Content!).Children[1];
+            var cancel = new Button { Content = LocalizationService.T(Str.Db_Btn_Cancel), Classes = { "ghost" }, MinWidth = 90, Margin = new Thickness(8, 0, 0, 0) };
+            cancel.Click += (_, _) => Close((bool?)null);
+            btns.Children.Add(cancel);
+        }
+
+        /// <summary>Windows-Pendant: MessageBox.Show(..., MessageBoxButton.YesNoCancel, ...).
+        /// true = Ja, false = Nein, null = Abbrechen.</summary>
+        public static async Task<bool?> ShowYesNoCancelAsync(Window owner, string title, string message) =>
+            await new ConfirmDialog(title, message, withCancel: true).ShowDialog<bool?>(owner);
     }
 }

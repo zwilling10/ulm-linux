@@ -268,9 +268,12 @@
         <Border Grid.Row="4" Background="{DynamicResource BrushWhite}"
                 BorderBrush="{DynamicResource BrushBorder}" BorderThickness="0,1,0,0">
             <StackPanel Margin="12,8" Spacing="6">
+                <!-- Windows-Pendant: BtnDownload_Click im Code-behind (nicht Command-gebunden) —
+                     die Dialogkette (Kopiermodus/Freispeicher/Slots-Geschwindigkeitstest) braucht
+                     ein Owner-Fenster, gehört deshalb wie unter Windows in die View statt ins VM. -->
                 <StackPanel Orientation="Horizontal">
                     <Button Classes="primary" Content="{Binding ActionDownloadLabel}" Width="180"
-                            Command="{Binding DownloadCommand}" Margin="0,0,8,0"/>
+                            Click="BtnDownload_Click" IsEnabled="{Binding !IsBusy}" Margin="0,0,8,0"/>
                     <Button Classes="warning" Content="{Binding ActionCheckUpdatesLabel}" Width="150"
                             Command="{Binding CheckUpdatesCommand}"/>
                     <TextBlock Text="{Binding DownloadPercent, StringFormat={}{0}%}" VerticalAlignment="Center"
@@ -278,19 +281,6 @@
                                IsVisible="{Binding IsBusy}"/>
                     <Button Classes="ghost" Content="{Binding ActionCancelDownloadLabel}" Width="110"
                             Command="{Binding CancelDownloadCommand}" IsVisible="{Binding IsBusy}"/>
-                </StackPanel>
-
-                <!-- Warteschlangen-Optionen (Windows-Pendant: DownloadSlotsDialog + die YesNoCancel-
-                     Abfragen "Nach dem Download kopieren?"/"Danach löschen?") — hier als dauerhaft
-                     sichtbare Steuerelemente statt Dialogkette, siehe Plan. Angehakte Zeilen +
-                     SelectedRow-Fallback bilden die Warteschlange (DownloadCommand). -->
-                <StackPanel Orientation="Horizontal">
-                    <TextBlock Text="{Binding DownloadSlotsLabel}" VerticalAlignment="Center" Margin="0,0,6,0" FontSize="12"/>
-                    <NumericUpDown Value="{Binding DownloadSlots}" Minimum="1" Maximum="{Binding MaxDownloadSlots}"
-                                   Width="90" Margin="0,0,16,0" FormatString="0" ShowButtonSpinner="True"/>
-                    <CheckBox Content="{Binding CopyAfterDownloadLabel}" IsChecked="{Binding CopyAfterDownload}" Margin="0,0,16,0"/>
-                    <CheckBox Content="{Binding DeleteAfterCopyLabel}" IsChecked="{Binding DeleteAfterCopy}"
-                              IsEnabled="{Binding CopyAfterDownload}"/>
                 </StackPanel>
 
                 <!-- "ExpertBar": die restlichen Windows-Werkzeuge sichtbar, aber ohne Linux-Backing
