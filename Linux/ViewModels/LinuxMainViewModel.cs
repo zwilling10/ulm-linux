@@ -539,6 +539,13 @@ namespace ULM.Linux.ViewModels
             {
                 var toCopy = queue.Where(e => e.IsLocallyAvailable(_downloadDirectory)).ToList();
                 (copyOk, copyFailed) = await RunCopyBatchAsync(toCopy, mountPoint, deleteAfter).ConfigureAwait(true);
+                // Nutzerfund (2026-09-04): "Auf dem Stick"-Spalte blieb nach dem Kopieren auf dem
+                // alten Stand — ScanConnectedStickAsync (setzt UsbStatus) lief bisher NUR über
+                // PollDrivesAsync' "neu erkannter Stick"-Zweig, nie nach einem Kopiervorgang auf
+                // einen bereits bekannten Stick. Direkter Aufruf hier (nicht über PollDrivesAsync'
+                // _lastScannedDeviceNode-Schutz, der genau diesen Fall absichtlich überspringt)
+                // schließt die Lücke, ohne den Neu-Erkennungs-Pfad zu verändern.
+                await ScanConnectedStickAsync(mountPoint).ConfigureAwait(true);
             }
 
             _activeDownloadWorker = null;
