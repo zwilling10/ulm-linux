@@ -171,21 +171,6 @@ namespace ULM.Linux.ViewModels
         private DownloadWorker? _activeDownloadWorker;
         private CopyToUsbWorker? _activeCopyWorker;
 
-        /// <summary>Windows-Pendant: MainWindow.xaml.cs' `_vm.ConfirmSlowDownload = (name, host) =>
-        /// MessageBox.Show(...)`. Die View setzt diesen Delegate (braucht ein Fenster als Owner).
-        /// ASYNC (Task&lt;bool&gt;, nicht bool) — Nutzerfund (2026-09-05): eine frühere synchrone
-        /// Fassung ließ die komplette UI einfrieren, sobald ein Mirror den Geschwindigkeits-
-        /// Schwellwert unterschritt. Root Cause: worker.ConfirmSlowDownloadAnyway lief bereits über
-        /// Dispatcher.UIThread.InvokeAsync(...).GetAwaiter().GetResult() vom Hintergrund-Thread auf
-        /// den UI-Thread — der DORT ausgeführte Delegate versuchte dann selbst NOCH EINMAL
-        /// Dispatcher.UIThread.InvokeAsync(...).GetAwaiter().GetResult() (für ConfirmDialog.ShowAsync),
-        /// diesmal aber BEREITS AUF DEM UI-THREAD sitzend — ein Thread kann nicht auf die eigene,
-        /// noch in seiner eigenen Warteschlange steckende Fortsetzung warten (Selbst-Deadlock,
-        /// klassisches "blockierend auf sich selbst wartender UI-Thread"-Muster). Der Fix unten
-        /// (Dispatcher.UIThread.Post + TaskCompletionSource) dispatcht nur EINMAL, blockiert dabei
-        /// ausschließlich den echten Hintergrund-Thread (sicher), der UI-Thread bleibt frei und
-        /// kann den Dialog normal per await anzeigen.</summary>
-        public Func<string, string, Task<bool>>? ConfirmSlowDownload;
 
         // ── Für das Windows-parallele DownloadProgressDialog im Code-behind (braucht ein Owner-
         // Fenster, siehe BtnDownload_Click) — Windows-Pendant: MainViewModel.DownloadItemProgress/
@@ -629,25 +614,23 @@ namespace ULM.Linux.ViewModels
             CancelDownloadCommand.RaiseCanExecuteChanged();
 
             worker.LogMessage += msg => Avalonia.Threading.Dispatcher.UIThread.Post(() => AppendLog(msg));
-            // _ui.Invoke-Äquivalent: blockiert nur den EINEN Hintergrund-Slot, der gerade langsam
-            // ist, bis der Anwender geantwortet hat — die anderen parallelen Slots laufen weiter
-            // (siehe DownloadWorker.ConfirmSlowDownloadAnyway-Kommentar in Workers.cs). Dispatcher.
-            // UIThread.Post (fire-and-forget) statt InvokeAsync(...).GetAwaiter().GetResult() —
-            // GENAU EIN Dispatch auf den UI-Thread, der dort per await ganz normal weiterläuft;
-            // die TaskCompletionSource überträgt das Ergebnis zurück auf DIESEN Hintergrund-Thread,
-            // dessen GetAwaiter().GetResult() sicher ist (kein UI-Thread). Siehe ConfirmSlowDownload-
-            // Kommentar oben für den Deadlock, den die vorherige doppelt-verschachtelte Fassung
-            // verursacht hat (Nutzerfund 2026-09-05: komplettes Einfrieren beim ersten langsamen Mirror).
+            // Nutzerfund (2026-09-05): sowohl die ursprüngliche Fassung (verschachteltes
+            // Dispatcher.UIThread.InvokeAsync(...).GetAwaiter().GetResult(), UI-Thread-Selbst-
+            // Deadlock) ALS AUCH die erste Korrektur (ein Hintergrund-Thread blockiert per
+            // TaskCompletionSource auf eine über Dispatcher.UIThread.Post gezeigte Rückfrage) haben
+            // die App beim ersten dauerhaft langsamen Mirror komplett einfrieren lassen — ohne
+            // Debugger-Zugriff (kein ptrace hier) ließ sich die zweite Fassung nicht mehr sicher
+            // isoliert nachweisen. Statt ein drittes, ebenso fragiles Cross-Thread-Blockier-Schema
+            // zu versuchen: Rückfrage komplett entfernt, automatisch weiterlaufen lassen (nur Log-
+            // Hinweis, keine Blockierung, kein Dispatcher-Aufruf) — dieser Pfad betrifft ohnehin nur
+            // einen seltenen Randfall (dauerhaft <1MB/s trotz ausgeschöpfter Mirror-Alternativen),
+            // ein garantiert nicht einfrierender automatischer Fortsetzungs-Entscheid ist hier
+            // eindeutig wichtiger als die Interaktivität dieser einen Frage.
             worker.ConfirmSlowDownloadAnyway = (name, host) =>
             {
-                var tcs = new TaskCompletionSource<bool>();
-                Avalonia.Threading.Dispatcher.UIThread.Post(async () =>
-                {
-                    bool result = false;
-                    try { if (ConfirmSlowDownload is not null) result = await ConfirmSlowDownload(name, host).ConfigureAwait(true); }
-                    finally { tcs.TrySetResult(result); }
-                });
-                return tcs.Task.GetAwaiter().GetResult();
+                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                    AppendLog(string.Format(LocalizationService.T(Str.Msg_SlowDownload_Body), name, host)));
+                return true;
             };
             worker.OverallProgress += (pct, detail) => Avalonia.Threading.Dispatcher.UIThread.Post(() => { DownloadPercent = pct; DownloadStatus = detail; });
             worker.SlotUpdated += p => Avalonia.Threading.Dispatcher.UIThread.Post(() =>

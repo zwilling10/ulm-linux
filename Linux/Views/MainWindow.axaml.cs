@@ -39,17 +39,12 @@ namespace ULM.Linux.Views
                 // direkt nach dem ersten abgeschlossenen Online-Versionscheck ("Datenmüll-Schutz",
                 // Nutzerwunsch 2026-09-04).
                 _vm.AutoVersionCheckCompleted += OnAutoVersionCheckCompleted;
-                // Windows-Pendant: MainWindow.xaml.cs' `_vm.ConfirmSlowDownload = (name, host) =>
-                // MessageBox.Show(...)`. LinuxMainViewModel.DownloadQueueAsync dispatcht bereits
-                // GENAU EINMAL vom Hintergrund-Thread auf den UI-Thread, bevor dieser Delegate
-                // aufgerufen wird — hier also schon garantiert auf dem UI-Thread, deshalb ganz
-                // normales await ohne jedes weitere Dispatcher/GetResult (Nutzerfund 2026-09-05:
-                // eine frühere Fassung mit einem zweiten, hier verschachtelten Dispatcher.UIThread.
-                // InvokeAsync(...).GetAwaiter().GetResult() blockierte den UI-Thread auf sich
-                // selbst und ließ die ganze App beim ersten langsamen Mirror einfrieren).
-                _vm.ConfirmSlowDownload = (name, host) => ConfirmDialog.ShowAsync(this,
-                    LocalizationService.T(Str.Msg_SlowDownload_Title),
-                    string.Format(LocalizationService.T(Str.Msg_SlowDownload_Body), name, host));
+                // Kein ConfirmSlowDownload-Delegate mehr — Nutzerfund (2026-09-05): sowohl eine
+                // verschachtelte als auch eine per TaskCompletionSource entkoppelte
+                // Cross-Thread-Blockierung dafür haben die App bei einem dauerhaft langsamen
+                // Mirror komplett einfrieren lassen. LinuxMainViewModel.DownloadQueueAsync macht
+                // bei diesem Fall jetzt automatisch weiter (nur Log-Zeile, siehe dortiger
+                // Kommentar) statt eine Rückfrage zu blockieren.
 
                 // Windows-Pendant: MainWindow.xaml.cs' DownloadItemProgress/DownloadBatchCompleted/
                 // CopyItemProgress/CopyBatchCompleted-Verdrahtung — einmalig abonniert, reicht nur
