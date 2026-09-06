@@ -301,6 +301,41 @@ namespace ULM.Linux.Tests
             }
         }
 
+        // Windows-Pendant: keins nötig — UsbService.SafeRecursiveSearch() ist geteilter Core-Code
+        // (Core/Services/UsbService.cs), der Bug ist aber NUR auf Linux beobachtbar. Nutzerfund
+        // (2026-09-06): "USB-Scan zeigt vorhandene Distros nicht an" — 0 Dateien gefunden trotz
+        // real vorhandener ISOs in Kategorie-Ordnern auf dem Stick.
+        //
+        // Root Cause: SafeRecursiveSearch() überspringt Ordner namens "ventoy" (gedacht für den
+        // internen Ventoy-Konfigurationsordner AUF der Partition) per Namensvergleich — OHNE zu
+        // unterscheiden, ob das der WURZELORDNER selbst ist. Windows übergibt hier immer einen
+        // Laufwerksbuchstaben ("D:\"), dessen Path.GetFileName() leer ist — die Kollision kann
+        // dort nie auftreten. Linux übergibt den echten Mountpoint-Pfad, dessen letztes
+        // Pfadsegment der DATENTRÄGER-LABEL ist — und Ventoy vergibt der exFAT-Partition per
+        // Standard exakt das Label "Ventoy". Path.GetFileName(mountPoint) liefert dann "Ventoy",
+        // was per OrdinalIgnoreCase-Vergleich fälschlich als "das ist der ventoy-Unterordner,
+        // überspringen" erkannt wird — SafeRecursiveSearch bricht dadurch VOR dem ersten
+        // Directory.GetFiles()-Aufruf ab, komplett unabhängig vom tatsächlichen Inhalt des Sticks.
+        [Fact]
+        public void ScanStick_MountPointNamedVentoy_StillFindsIsosInCategoryFolders()
+        {
+            // Der Mountpoint selbst muss "Ventoy" heißen (Ventoys Standard-Datenträger-Label),
+            // eine eindeutige Guid-Elternebene vermeidet Kollisionen zwischen Testläufen.
+            string stickRoot = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"ulm-stick-test-{Guid.NewGuid():N}", "Ventoy");
+            System.IO.Directory.CreateDirectory(System.IO.Path.Combine(stickRoot, "ventoy")); // interner Ventoy-Ordner
+            string category = System.IO.Path.Combine(stickRoot, "Einsteiger");
+            System.IO.Directory.CreateDirectory(category);
+            string isoPath = System.IO.Path.Combine(category, "pop-os_24.04_amd64_nvidia_12.iso");
+            System.IO.File.WriteAllBytes(isoPath, new byte[1024]);
+            try
+            {
+                var found = ULM.Core.Services.UsbService.Instance.ScanStick(stickRoot, new List<IsoEntry>());
+
+                Assert.Contains(found, f => f.Filename == "pop-os_24.04_amd64_nvidia_12.iso" && f.Category == "Einsteiger");
+            }
+            finally { try { System.IO.Directory.Delete(System.IO.Path.GetDirectoryName(stickRoot)!, true); } catch { } }
+        }
+
         [Fact]
         public void CancelDownloadCommand_DisabledWithoutRunningDownload()
         {

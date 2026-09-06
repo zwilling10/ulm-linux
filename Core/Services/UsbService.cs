@@ -490,7 +490,7 @@ foreach ($d in $disks) {
             if (!Directory.Exists(root)) return result;
 
             var allFiles = new List<string>();
-            SafeRecursiveSearch(root, allFiles);
+            SafeRecursiveSearch(root, allFiles, isRoot: true);
 
             foreach (string f in allFiles)
             {
@@ -537,15 +537,30 @@ foreach ($d in $disks) {
             return (clean, incomplete);
         }
 
-        private void SafeRecursiveSearch(string currentDir, List<string> resultFiles)
+        // BUGFIX (Nutzerfund 2026-09-06, nur auf Linux beobachtbar): der Namens-Blacklist-Check
+        // unten ist für ORDNER INNERHALB des Sticks gedacht (der interne Ventoy-Konfigurationsordner
+        // "/ventoy", die Windows-Systemordner) — nicht für den WURZELORDNER selbst. Unter Windows
+        // ist das nie ein Problem, weil DriveRoot() dort einen Laufwerksbuchstaben ("D:\") liefert,
+        // dessen Path.GetFileName() immer leer ist. Unter Linux ist der übergebene "letter" ein
+        // echter Mountpoint-Pfad, dessen letztes Segment das DATENTRÄGER-LABEL ist — und Ventoy
+        // vergibt der Hauptpartition standardmäßig exakt das Label "Ventoy". Path.GetFileName(root)
+        // lieferte dadurch "Ventoy", was der Vergleich unten (OrdinalIgnoreCase) fälschlich als "das
+        // ist der interne ventoy-Ordner, überspringen" erkannte — SafeRecursiveSearch brach VOR dem
+        // ersten Directory.GetFiles()-Aufruf ab, unabhängig vom tatsächlichen Stick-Inhalt (0
+        // gefundene Dateien trotz real vorhandener ISOs in Kategorie-Ordnern). isRoot=true
+        // überspringt den Namens-Check nur für den allerersten (Wurzel-)Aufruf.
+        private void SafeRecursiveSearch(string currentDir, List<string> resultFiles, bool isRoot = false)
         {
-            string dirName = Path.GetFileName(currentDir);
-            if (string.Equals(dirName, "System Volume Information", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(dirName, "$RECYCLE.BIN",  StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(dirName, "ventoy",        StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(dirName, "VTOYEFI",       StringComparison.OrdinalIgnoreCase) ||
-                dirName.StartsWith('.') || dirName.StartsWith('$'))
-                return;
+            if (!isRoot)
+            {
+                string dirName = Path.GetFileName(currentDir);
+                if (string.Equals(dirName, "System Volume Information", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(dirName, "$RECYCLE.BIN",  StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(dirName, "ventoy",        StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(dirName, "VTOYEFI",       StringComparison.OrdinalIgnoreCase) ||
+                    dirName.StartsWith('.') || dirName.StartsWith('$'))
+                    return;
+            }
             try
             {
                 foreach (string f in Directory.GetFiles(currentDir, "*.iso")) resultFiles.Add(f);
