@@ -1213,9 +1213,28 @@ namespace ULM.Linux.ViewModels
         /// Mini-Phasen, siehe Brainstorming): automatisches Ventoy-Einrichten bei Nicht-Ventoy-
         /// Sticks, "veraltet gefunden → automatisch nachkopieren"-Angebot, sowie die drei
         /// Windows-Dialoge für unbekannte/doppelte/neuere Stick-ISOs.</summary>
+        /// <summary>Diagnose-Feld (Nutzerfund 2026-09-06: "USB-Scan zeigt vorhandene Distros nicht
+        /// an", IsBusy-Absicherung in DownloadQueueAsync hat es NICHT behoben) — merkt sich, für
+        /// welchen DeviceNode zuletzt ein Diagnose-Log geschrieben wurde, damit nicht bei jedem
+        /// 8s-Poll erneut geloggt wird, nur beim ERSTEN Erkennen/bei einer Änderung.</summary>
+        private string? _lastLoggedDeviceNode;
+
         public async Task PollDrivesAsync()
         {
-            var current = await _usbService.ListRemovableDevicesAsync().ConfigureAwait(true);
+            List<LinuxBlockDevice> current;
+            try { current = await _usbService.ListRemovableDevicesAsync().ConfigureAwait(true); }
+            catch (Exception ex)
+            {
+                // Nutzerfund (2026-09-06): kein einziger Stick-Scan-Protokolleintrag mehr, obwohl
+                // ein Ventoy-Stick sichtbar eingesteckt war. Bisher schlug ein Fehler hier (z.B.
+                // lsblk nicht im PATH der laufenden App, JSON-Parse-Fehler) lautlos fehl — der
+                // 8s-Timer in App.axaml.cs hat KEIN eigenes try/catch, eine Exception hier hätte
+                // JEDEN künftigen Tick genauso treffen können, ohne dass irgendwo eine Zeile davon
+                // im Protokoll auftaucht. Jetzt sichtbar, damit der nächste Testlauf die eigentliche
+                // Ursache zeigt statt weiter zu raten.
+                AppendLog($"⚠ USB-Geräteliste konnte nicht gelesen werden: {ex.Message}");
+                return;
+            }
             string? selectedNode = SelectedDrive?.DeviceNode;
 
             Drives.Clear();
@@ -1226,6 +1245,13 @@ namespace ULM.Linux.ViewModels
                 : Drives.FirstOrDefault(d => d.DeviceNode == selectedNode);
 
             if (SelectedDrive is null) { _lastScannedDeviceNode = null; return; }
+
+            if (SelectedDrive.DeviceNode != _lastLoggedDeviceNode)
+            {
+                _lastLoggedDeviceNode = SelectedDrive.DeviceNode;
+                AppendLog($"ℹ Wechseldatenträger ausgewählt: {SelectedDrive.DeviceNode}, Mountpoint={SelectedDrive.MountPoint ?? "(keiner)"}, Ventoy={SelectedDrive.IsVentoyInstalled}");
+            }
+
             if (SelectedDrive.IsVentoyInstalled && SelectedDrive.MountPoint is not null
                 && SelectedDrive.DeviceNode != _lastScannedDeviceNode && !UsbScanActive && !IsBusy)
             {
