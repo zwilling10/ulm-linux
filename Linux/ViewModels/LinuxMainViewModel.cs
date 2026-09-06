@@ -1268,10 +1268,16 @@ namespace ULM.Linux.ViewModels
             UsbScanActive = true;
             try
             {
-                var (found, _) = await UsbService.Instance.ScanStickVerifiedAsync(mountPoint, _db.Entries).ConfigureAwait(true);
+                var (found, incomplete) = await UsbService.Instance.ScanStickVerifiedAsync(mountPoint, _db.Entries).ConfigureAwait(true);
                 _lastStickListing = found;
                 ApplyStickResults(found);
                 ApplyFilter();
+                // Diagnose (Nutzerfund 2026-09-06): bisher loggte diese Methode im Erfolgsfall GAR
+                // NICHTS — "keine weitere Zeile im Protokoll" ließ sich dadurch nicht von "Scan lief
+                // nie" unterscheiden. Jetzt sichtbar: wie viele Dateien gefunden wurden und wie
+                // viele Katalog-Einträge dadurch als "Ok" auf dem Stick markiert wurden.
+                int okCount = _db.Entries.Count(e => e.UsbStatus == Core.Models.UsbStatus.Ok);
+                AppendLog($"ℹ Stick-Scan abgeschlossen: {found.Count} Datei(en) gefunden, {incomplete.Count} unvollständig, {okCount} Katalog-Einträge als 'Ok' markiert.");
             }
             catch (Exception ex)
             {
