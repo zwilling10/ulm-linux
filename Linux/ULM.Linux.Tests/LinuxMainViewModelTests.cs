@@ -180,6 +180,48 @@ namespace ULM.Linux.Tests
             Assert.Equal(2, db.Entries.Count);
         }
 
+        // Windows-Pendant: MainViewModel.ApplyResolvedUpdatesAndOfferStickUpdate() — Nutzerfund
+        // (2026-09-06): "geladen wird die alte, das ist bei allen so". Root Cause: Der Online-Check
+        // setzte bisher nur die Laufzeit-Felder RemoteVersion/RemoteUrl/RemoteFilename (Badge "🆕
+        // v...."), ohne sie je in die PERSISTIERTEN Filename/Url-Felder zu übernehmen — der Katalog
+        // aktualisierte sich dadurch nie wirklich, nur die Anzeige tat so als ob.
+        [Fact]
+        public void ApplyResolvedUpdates_NewerRemoteVersion_UpdatesFilenameUrlAndRenamesEntry()
+        {
+            var db = new FakeIsoDatabaseService();
+            db.Add(new IsoEntry
+            {
+                Name = "Clonezilla 3.3.0-33", Category = "Rettung",
+                Filename = "clonezilla-live-3.3.0-33-amd64.iso",
+                RemoteVersion = "3.3.3-15",
+                RemoteUrl = "https://master.dl.sourceforge.net/project/clonezilla/clonezilla-live-3.3.3-15-amd64.iso",
+                RemoteFilename = "clonezilla-live-3.3.3-15-amd64.iso",
+                UpdateAvailable = true
+            });
+            var vm = new LinuxMainViewModel(db, "/tmp/ulm-linux-vm-test");
+
+            vm.ApplyResolvedUpdates(new System.Collections.Generic.List<int> { 0 }, false);
+
+            var e = db.Entries[0];
+            Assert.Equal("clonezilla-live-3.3.3-15-amd64.iso", e.Filename);
+            Assert.Equal("Clonezilla 3.3.3-15", e.Name);
+            Assert.False(e.UpdateAvailable);
+            Assert.Equal(e.RemoteUrl, e.Url);
+        }
+
+        [Fact]
+        public void ApplyResolvedUpdates_NoUpdatesButUrlDiscovered_StillSaves()
+        {
+            var db = new FakeIsoDatabaseService();
+            db.Add(new IsoEntry { Name = "Fedora Workstation 41", Category = "Fortgeschrittene", Url = "https://example.org/fedora.iso" });
+            var vm = new LinuxMainViewModel(db, "/tmp/ulm-linux-vm-test");
+            int savesBefore = db.SaveCount;
+
+            vm.ApplyResolvedUpdates(new System.Collections.Generic.List<int>(), true);
+
+            Assert.True(db.SaveCount > savesBefore);
+        }
+
         [Fact]
         public void CancelDownloadCommand_DisabledWithoutRunningDownload()
         {

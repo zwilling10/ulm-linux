@@ -402,6 +402,37 @@ namespace ULM.Linux.ViewModels
             LogEntries.Add(line);
         }
 
+        /// <summary>Windows-Pendant: MainViewModel.ApplyResolvedUpdatesAndOfferStickUpdate() — übernimmt
+        /// die von UpdateScanWorker/AutoVersionCheckWorker in RemoteUrl/RemoteFilename/RemoteVersion
+        /// aufgelösten neuen Versionen SOFORT in die persistierten Felder (Url/Filename), statt sie nur
+        /// als Laufzeit-Badge ("🆕 v...") stehen zu lassen. Nutzerfund (2026-09-06): "geladen wird die
+        /// alte" — Url/Filename blieben nach einem Online-Check auf dem alten Stand hängen, bis
+        /// irgendwann ein Download lief; ein bloßer Badge-Wechsel sah für den Nutzer wie ein
+        /// funktionierender Check aus, tatsächlich aktualisierte sich der Katalog nie. Bewusst OHNE das
+        /// Windows-Pendant "sofort Stick-Update anbieten" — kein entsprechender Linux-UI-Flow für ein
+        /// spontanes Stick-Update-Angebot vorhanden, reiner Katalog-Übernahme-Teil.</summary>
+        internal void ApplyResolvedUpdates(List<int> updates, bool anyUrlDiscovered)
+        {
+            foreach (int i in updates)
+            {
+                if (i < 0 || i >= _db.Entries.Count) continue;
+                var e = _db.Entries[i]; if (string.IsNullOrEmpty(e.RemoteUrl)) continue;
+                string oldVer = HttpService.ExtractVersion(e.Filename);
+                if (string.IsNullOrEmpty(oldVer)) oldVer = HttpService.ExtractVersion(e.Name);
+                string newVer = string.IsNullOrEmpty(e.RemoteVersion) ? HttpService.ExtractVersion(e.RemoteFilename) : e.RemoteVersion;
+                e.Url = e.RemoteUrl; e.Filename = e.RemoteFilename;
+                e.UpdateAvailable = false;
+                if (!string.IsNullOrEmpty(oldVer) && !string.IsNullOrEmpty(newVer) && oldVer != newVer)
+                {
+                    int pos = e.Name.IndexOf(oldVer, StringComparison.Ordinal);
+                    if (pos >= 0) { string on = e.Name; e.Name = e.Name[..pos] + newVer + e.Name[(pos + oldVer.Length)..]; AppendLog(string.Format(LocalizationService.T(Str.Log_NameUpdated), on, e.Name)); }
+                }
+            }
+            if (updates.Count > 0) { _db.Save(); AppendLog(string.Format(LocalizationService.T(Str.Log_DbNewVersionsSaved), updates.Count)); }
+            else if (anyUrlDiscovered) { _db.Save(); AppendLog(LocalizationService.T(Str.Log_DbNewSourcesSaved)); }
+            if (DeduplicateEntries() > 0) ApplyFilter();
+        }
+
         /// <summary>Windows-Pendant: MainViewModel.DeduplicateEntries() — 1:1 dieselbe Logik über
         /// dieselben, schon plattformneutral verlinkten DistroMatcher-Funktionen (kein Neuschreiben).
         /// Läuft einmal beim Start (Konstruktor, vor der ersten ApplyFilter()) und vor jedem
@@ -850,11 +881,15 @@ namespace ULM.Linux.ViewModels
             worker.EntryChecked += result => Avalonia.Threading.Dispatcher.UIThread.Post(() => results.Add(result));
 
             var tcs = new TaskCompletionSource();
-            worker.Completed += (_, _) => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            worker.Completed += (resolved, updates) => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
             {
                 HealthCheckActive = false;
                 HealthCheckPercent = 100;
+                // Windows-Pendant: HealthCheckCompleted (öffnet den modalen DbHealthCheckDialog) muss
+                // VOR ApplyResolvedUpdates feuern, siehe dortiger Kommentar zur Dialog-Reihenfolge.
                 HealthCheckCompleted?.Invoke(results);
+                ApplyResolvedUpdates(updates, worker.AnyUrlDiscovered || worker.AnyStreakChanged);
+                ApplyFilter();
                 tcs.TrySetResult();
             });
             await worker.RunAsync().ConfigureAwait(true);
@@ -888,7 +923,7 @@ namespace ULM.Linux.ViewModels
             var tcs = new TaskCompletionSource();
             worker.Completed += (resolved, updates) => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
             {
-                if (updates.Count > 0 || worker.AnyUrlDiscovered || worker.AnyStreakChanged) _db.Save();
+                ApplyResolvedUpdates(updates, worker.AnyUrlDiscovered || worker.AnyStreakChanged);
                 OnlineScanActive = false; OnlineScanPercent = 100;
                 ApplyFilter();
                 AutoVersionCheckCompleted?.Invoke();
