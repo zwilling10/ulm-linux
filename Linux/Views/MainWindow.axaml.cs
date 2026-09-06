@@ -256,7 +256,13 @@ namespace ULM.Linux.Views
             if (_vm is null || _vm.IsBusy) return;
             var dlg = new IsoListDialog(ULM.Core.Services.IsoDatabaseService.Instance);
             await dlg.ShowDialog<bool>(this);
-            _vm.Refresh();
+            // Nutzerfund (2026-09-06): Refresh() (voller DB-Reload von der Platte) wischte die
+            // Online-Check-Ergebnisse (RemoteVersion/UpdateAvailable, nicht persistiert) weg —
+            // unnötig, da IsoListDialog direkt auf demselben IsoDatabaseService.Instance-Objekt
+            // arbeitet (kein Reload nötig, um die Änderungen zu sehen). Windows-Pendant
+            // BtnEditDb_Click nutzt dafür RebuildTree() (kein DB-Reload) — RefreshRows() hier
+            // dasselbe.
+            _vm.RefreshRows();
             if (dlg.AnyEntryAdded) _vm.RunHealthCheckCommand.Execute(null);
         }
 
@@ -278,7 +284,13 @@ namespace ULM.Linux.Views
             // angelegt, sondern der bestehende Eintrag übernimmt ggf. den neuen Dateinamen.
             foreach (var entry in dlg.AddedEntries) _vm.AddImportedEntry(entry);
             ULM.Core.Services.IsoDatabaseService.Instance.Save();
-            _vm.Refresh();
+            // Nutzerfund (2026-09-06): Refresh() (voller DB-Reload von der Platte) wischte die
+            // Online-Check-Ergebnisse (RemoteVersion/UpdateAvailable, nicht persistiert) weg —
+            // unnötig, da AddImportedEntry() bereits direkt auf demselben In-Memory-Objekt
+            // arbeitet, Save()+Load() wäre hier nur ein wirkungsloser Umweg. Windows-Pendant
+            // BtnSearch_Click nutzt dafür RebuildTree() (kein DB-Reload) — RefreshRows() hier
+            // dasselbe.
+            _vm.RefreshRows();
             _vm.LogEntries.Add(string.Format(LocalizationService.T(Str.Log_IsosAddedFromOnlineSearch), dlg.AddedEntries.Count));
             // Frisch aus der Online-Suche übernommene Einträge haben nie eine geprüfte Url — wie bei
             // Datenbank-Neuanlagen lohnt sich hier der volle Gesundheitscheck sofort.
