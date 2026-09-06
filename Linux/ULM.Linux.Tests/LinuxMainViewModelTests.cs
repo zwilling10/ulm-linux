@@ -336,6 +336,36 @@ namespace ULM.Linux.Tests
             finally { try { System.IO.Directory.Delete(System.IO.Path.GetDirectoryName(stickRoot)!, true); } catch { } }
         }
 
+        // Windows-Pendant: MainViewModel.RefreshAllEntries() — Nutzerfund (2026-09-06): der
+        // Datenmüll-Schutz-Dialog rief nach einer Löschung bisher Refresh() auf (voller DB-Reload
+        // von der Platte), was die gerade erst ermittelten, nicht persistierten Online-Check-
+        // Ergebnisse (RemoteVersion/UpdateAvailable) wegwischte. RefreshRows() muss die Zeilenliste
+        // neu aufbauen, OHNE _db.Load() aufzurufen.
+        [Fact]
+        public void RefreshRows_DoesNotReloadDatabaseFromDisk()
+        {
+            var db = BuildDb();
+            var vm = new LinuxMainViewModel(db, "/tmp/ulm-linux-vm-test");
+            int loadsBefore = db.LoadCount;
+
+            vm.RefreshRows();
+
+            Assert.Equal(loadsBefore, db.LoadCount);
+            Assert.Equal(3, vm.Rows.Count);
+        }
+
+        [Fact]
+        public void RefreshCommand_StillReloadsDatabaseFromDisk()
+        {
+            var db = BuildDb();
+            var vm = new LinuxMainViewModel(db, "/tmp/ulm-linux-vm-test");
+            int loadsBefore = db.LoadCount;
+
+            vm.RefreshCommand.Execute(null);
+
+            Assert.Equal(loadsBefore + 1, db.LoadCount);
+        }
+
         [Fact]
         public void CancelDownloadCommand_DisabledWithoutRunningDownload()
         {

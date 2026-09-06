@@ -225,7 +225,12 @@ namespace ULM.Linux.Views
                     }
                     _vm.LogEntries.Add(string.Format(LocalizationService.T(Str.Log_FilesDeletedSimpleStatus), deleted)
                         + (failed > 0 ? string.Format(LocalizationService.T(Str.Log_FailedSuffix), failed) : "") + ".");
-                    if (deleted > 0) _vm.Refresh();
+                    // Nutzerfund (2026-09-06): Refresh() (voller DB-Reload von der Platte) wischte
+                    // hier die gerade erst ermittelten Online-Check-Ergebnisse (RemoteVersion/
+                    // UpdateAvailable, nicht persistiert) weg. Windows-Pendant nutzt für exakt
+                    // diesen Fall RefreshAllEntries() (nur UI-Neuaufbau, kein DB-Reload) — siehe
+                    // LinuxMainViewModel.RefreshRows()-Kommentar.
+                    if (deleted > 0) _vm.RefreshRows();
                 }
                 else _vm.LogEntries.Add(string.Format(LocalizationService.T(Str.Log_MaintenanceSkipped), candidates.Count));
             }

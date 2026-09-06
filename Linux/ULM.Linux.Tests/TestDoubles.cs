@@ -11,8 +11,9 @@ namespace ULM.Linux.Tests
         public IReadOnlyList<IsoEntry> Entries => _entries;
         public int Count => _entries.Count;
         public int SaveCount { get; private set; }
+        public int LoadCount { get; private set; }
 
-        public void Load() { }
+        public void Load() => LoadCount++;
         public void Save() => SaveCount++;
         public void SaveFilenames() { }
         public void Add(IsoEntry entry) => _entries.Add(entry);

@@ -559,6 +559,19 @@ namespace ULM.Linux.ViewModels
             ApplyFilter();
         }
 
+        /// <summary>Windows-Pendant: MainViewModel.RefreshAllEntries() — baut die Zeilenliste aus
+        /// dem AKTUELLEN In-Memory-Stand neu auf, OHNE die Datenbank von der Festplatte neu zu
+        /// laden (anders als Refresh()/RefreshCommand oben). Nutzerfund (2026-09-06): der
+        /// Datenmüll-Schutz-Dialog (RunLocalFileMaintenanceAsync) rief bisher nach einer Löschung
+        /// Refresh() auf — das ÜBERSCHREIBT die kompletten _db.Entries mit frisch von der Platte
+        /// geparsten IsoEntry-Objekten und wischt dabei die Laufzeit-Felder RemoteVersion/
+        /// RemoteUrl/RemoteFilename/UpdateAvailable weg (diese werden nie persistiert, siehe
+        /// IsoDatabaseService-Kommentar) — der gerade erst durchgelaufene Online-Check-Stand
+        /// ("Aktualität") ging dadurch verloren. Windows nutzt für exakt diesen Fall
+        /// RefreshAllEntries() (kein DB-Reload, nur UI-Neuaufbau) — dieselbe Methode hier
+        /// portiert.</summary>
+        public void RefreshRows() => ApplyFilter();
+
         /// <summary>Zwischengespeicherte letzte Stick-Dateiliste (Nutzerfund 2026-09-04:
         /// "Auf dem Stick"-Spalte zeigte "Nein" für eine Distro, die nachweislich bereits
         /// vollständig auf dem Stick lag). Root Cause: ApplyStickResults lief bisher nur bei einem
