@@ -714,41 +714,54 @@ namespace ULM.Linux.ViewModels
                 DownloadItemProgress?.Invoke(p.IsoName, p.Percent, p.Status, p.CanRequestFasterMirror);
             });
 
-            var tcs = new TaskCompletionSource<(int Ok, int Failed)>();
-            worker.Completed += (ok, failed, _) => Avalonia.Threading.Dispatcher.UIThread.Post(() => tcs.TrySetResult((ok, failed)));
-            await worker.RunAsync().ConfigureAwait(true);
-            var (okCount, failedCount) = await tcs.Task.ConfigureAwait(true);
-            _db.Save();
-            // Download-Phase vorbei — ab hier zeigt _activeDownloadWorker sonst fälschlich auf
-            // einen längst fertigen Worker, während die Kopier-Phase (falls sie folgt) über
-            // _pipelineCopyCts läuft. Siehe CancelDownloadCommand-Kommentar oben.
-            _activeDownloadWorker = null;
-            DownloadBatchCompleted?.Invoke(okCount, failedCount);
-
-            int copyOk = 0, copyFailed = 0;
-            if (usePipeline)
+            // Nutzerfund (2026-09-06): nach einem Download+Kopier-Durchlauf blieb IsBusy hängen —
+            // weder der automatische USB-Scan (PollDrivesAsync prüft !IsBusy) noch "Auf Stick
+            // kopieren" (CopyToStickCommand prüft ebenfalls !IsBusy) reagierten danach noch.
+            // BUGFIX: ohne try/finally hätte JEDE unerwartete Exception irgendwo in diesem Block
+            // (Download-Worker, Kopier-Pipeline, Ventoy-Menü-Update, Stick-Scan) IsBusy für den
+            // Rest der Sitzung dauerhaft auf true stehen lassen — kein einzelner bestätigter
+            // Reproduktionsschritt dafür gefunden, aber die einzige Stelle im gesamten Ablauf ohne
+            // jede Absicherung. Jetzt garantiert IsBusy=false, egal was dazwischen schiefgeht.
+            int okCount = 0, failedCount = 0, copyOk = 0, copyFailed = 0;
+            try
             {
-                pipelineChannel!.Writer.Complete();
-                (copyOk, copyFailed) = await pipelineTask!.ConfigureAwait(true);
+                var tcs = new TaskCompletionSource<(int Ok, int Failed)>();
+                worker.Completed += (ok, failed, _) => Avalonia.Threading.Dispatcher.UIThread.Post(() => tcs.TrySetResult((ok, failed)));
+                await worker.RunAsync().ConfigureAwait(true);
+                (okCount, failedCount) = await tcs.Task.ConfigureAwait(true);
+                _db.Save();
+                // Download-Phase vorbei — ab hier zeigt _activeDownloadWorker sonst fälschlich auf
+                // einen längst fertigen Worker, während die Kopier-Phase (falls sie folgt) über
+                // _pipelineCopyCts läuft. Siehe CancelDownloadCommand-Kommentar oben.
+                _activeDownloadWorker = null;
+                DownloadBatchCompleted?.Invoke(okCount, failedCount);
+
+                if (usePipeline)
+                {
+                    pipelineChannel!.Writer.Complete();
+                    (copyOk, copyFailed) = await pipelineTask!.ConfigureAwait(true);
+                    UsbService.UpdateVentoyMenu(mountPoint!, _db.Entries);
+                    _db.Save();
+                    CopyBatchCompleted?.Invoke(copyOk);
+                    // Nutzerfund (2026-09-04): "Auf dem Stick"-Spalte blieb nach dem Kopieren auf dem
+                    // alten Stand — ScanConnectedStickAsync (setzt UsbStatus) lief bisher NUR über
+                    // PollDrivesAsync' "neu erkannter Stick"-Zweig, nie nach einem Kopiervorgang auf
+                    // einen bereits bekannten Stick. Direkter Aufruf hier (nicht über PollDrivesAsync'
+                    // _lastScannedDeviceNode-Schutz, der genau diesen Fall absichtlich überspringt)
+                    // schließt die Lücke, ohne den Neu-Erkennungs-Pfad zu verändern.
+                    await ScanConnectedStickAsync(mountPoint!).ConfigureAwait(true);
+                }
+            }
+            finally
+            {
                 _pipelineCopyCts?.Dispose();
                 _pipelineCopyCts = null;
-                UsbService.UpdateVentoyMenu(mountPoint!, _db.Entries);
-                _db.Save();
-                CopyBatchCompleted?.Invoke(copyOk);
-                // Nutzerfund (2026-09-04): "Auf dem Stick"-Spalte blieb nach dem Kopieren auf dem
-                // alten Stand — ScanConnectedStickAsync (setzt UsbStatus) lief bisher NUR über
-                // PollDrivesAsync' "neu erkannter Stick"-Zweig, nie nach einem Kopiervorgang auf
-                // einen bereits bekannten Stick. Direkter Aufruf hier (nicht über PollDrivesAsync'
-                // _lastScannedDeviceNode-Schutz, der genau diesen Fall absichtlich überspringt)
-                // schließt die Lücke, ohne den Neu-Erkennungs-Pfad zu verändern.
-                await ScanConnectedStickAsync(mountPoint!).ConfigureAwait(true);
+                _activeDownloadWorker = null;
+                IsBusy = false;
+                ApplyFilter();
+                DownloadStatus = BuildDownloadSummary(okCount, failedCount, copyAfter, copyOk, copyFailed, mountPoint);
+                CancelDownloadCommand.RaiseCanExecuteChanged();
             }
-
-            _activeDownloadWorker = null;
-            IsBusy = false;
-            ApplyFilter();
-            DownloadStatus = BuildDownloadSummary(okCount, failedCount, copyAfter, copyOk, copyFailed, mountPoint);
-            CancelDownloadCommand.RaiseCanExecuteChanged();
         }
 
         /// <summary>Windows-Pendant: MainViewModel.RunPipelineCopyConsumerAsync() — kopiert jede
@@ -787,7 +800,33 @@ namespace ULM.Linux.ViewModels
                         });
                         copyFailedCount++; continue;
                     }
-                    long fileSize = new System.IO.FileInfo(srcPath).Length;
+                    long fileSize;
+                    string targetDir, targetPath;
+                    try
+                    {
+                        // BUGFIX (Review): FileInfo.Length und Directory.CreateDirectory standen
+                        // hier bisher UNGESCHÜTZT — eine Race Condition (Quelldatei verschwindet
+                        // zwischen dem File.Exists oben und hier, z.B. durch eine parallel
+                        // laufende Datenmüll-Bereinigung) oder ein Zielverzeichnis-Fehler hätte
+                        // sonst eine unbehandelte Exception aus DIESER Methode heraus bis zu
+                        // DownloadQueueAsync durchgereicht — IsBusy wäre dann NIE zurückgesetzt
+                        // worden (siehe try/finally-Kommentar dort), der komplette Rest der
+                        // Sitzung (USB-Scan, "Auf Stick kopieren") wäre danach wirkungslos
+                        // geblieben. Jetzt bleibt ein Fehlschlag auf DIESEN einen Eintrag begrenzt.
+                        fileSize = new System.IO.FileInfo(srcPath).Length;
+                        targetDir = System.IO.Path.Combine(root, entry.Category);
+                        System.IO.Directory.CreateDirectory(targetDir);
+                        targetPath = System.IO.Path.Combine(targetDir, entry.Filename);
+                    }
+                    catch (Exception ex)
+                    {
+                        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                        {
+                            CopyItemProgress?.Invoke(entryName, 0, string.Format(LocalizationService.T(Str.DlStatus_GeneralError), ex.Message));
+                            AppendLog(string.Format(LocalizationService.T(Str.Log_CopyError), entryName, ex.Message));
+                        });
+                        copyFailedCount++; continue;
+                    }
                     try
                     {
                         var drv = new System.IO.DriveInfo(root);
@@ -803,10 +842,6 @@ namespace ULM.Linux.ViewModels
                         }
                     }
                     catch { /* Freispeicher-Check ist best-effort, analog zu CopyToUsbWorker */ }
-
-                    string targetDir = System.IO.Path.Combine(root, entry.Category);
-                    System.IO.Directory.CreateDirectory(targetDir);
-                    string targetPath = System.IO.Path.Combine(targetDir, entry.Filename);
 
                     long copied = 0L; var sw = System.Diagnostics.Stopwatch.StartNew(); long lastMark = 0L; double lastEl = 0.0;
                     bool copyOk;
