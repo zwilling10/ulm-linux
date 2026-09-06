@@ -45,13 +45,13 @@ namespace ULM.Linux.ViewModels
             // Windows-Pendant: kein gebundenes DownloadCommand — BtnDownload_Click im Code-behind
             // (MainWindow.axaml.cs) klärt die Dialogkette (Kopiermodus/Freispeicher/Slots) und ruft
             // DownloadQueueAsync(queue, ...) direkt auf, da die Dialoge ein Owner-Fenster brauchen.
-            // Nutzerfund (2026-09-04): Klick auf "Abbrechen" während der Kopier-Pipeline-Phase
-            // (nach dem Download) tat nichts — _activeDownloadWorker zeigt dort noch auf den
-            // längst FERTIGEN DownloadWorker, der laufende CopyToUsbWorker (RunCopyBatchAsync)
-            // war nie erreichbar. Beide Worker-Referenzen jetzt hier abgedeckt.
+            // Nutzerfund (2026-09-04): Klick auf "Abbrechen" während der Kopier-Phase (nach dem
+            // Download) tat nichts — _activeDownloadWorker zeigt dort noch auf den längst FERTIGEN
+            // DownloadWorker, die laufende Kopier-Pipeline (_pipelineCopyCts, siehe
+            // DownloadQueueAsync) war nie erreichbar. Beide Phasen jetzt hier abgedeckt.
             CancelDownloadCommand  = new RelayCommand(
-                () => { _activeDownloadWorker?.Cancel(); _activeCopyWorker?.Cancel(); },
-                () => IsBusy && (_activeDownloadWorker is not null || _activeCopyWorker is not null));
+                () => { _activeDownloadWorker?.Cancel(); _pipelineCopyCts?.Cancel(); },
+                () => IsBusy && (_activeDownloadWorker is not null || _pipelineCopyCts is not null));
             RequestFasterMirrorCommand = new RelayCommand<string>(name => { if (name is not null) _activeDownloadWorker?.RequestFasterMirror(name); });
             CopyToStickCommand     = new RelayCommand(() => _ = CopySelectedToStickAsync(), () => SelectedRow is not null && SelectedDrive is not null && !IsBusy);
             RequestVentoyInstallCommand = new RelayCommand(() => RequestVentoyConfirmation(updateMode: false), () => SelectedDrive is not null && !IsBusy);
@@ -169,7 +169,14 @@ namespace ULM.Linux.ViewModels
         }
 
         private DownloadWorker? _activeDownloadWorker;
-        private CopyToUsbWorker? _activeCopyWorker;
+        /// <summary>Windows-Pendant: kein direktes Gegenstück nötig (Windows bricht die Pipeline-Kopie
+        /// nicht separat abbrechbar ab) — hier gebraucht, weil die Kopier-Pipeline (siehe
+        /// DownloadQueueAsync/RunPipelineCopyConsumerAsync) kein eigenes Worker-Objekt mit Cancel()
+        /// hat, das der bestehende CancelDownloadCommand aufrufen könnte. Ohne dieses Feld wäre
+        /// "Abbrechen" während der Kopier-Phase wirkungslos (_activeDownloadWorker ist dort schon
+        /// fertig) — derselbe Bug, der schon einmal für den (inzwischen ersetzten) Batch-Kopier-Pfad
+        /// gefunden und behoben wurde (Nutzerfund 2026-09-04, siehe CancelDownloadCommand-Kommentar).</summary>
+        private CancellationTokenSource? _pipelineCopyCts;
 
 
         // ── Für das Windows-parallele DownloadProgressDialog im Code-behind (braucht ein Owner-
@@ -624,11 +631,11 @@ namespace ULM.Linux.ViewModels
         /// Aufruf im Code-behind (MainWindow.axaml.cs BtnDownload_Click, braucht ein Owner-Fenster
         /// für die Dialogkette) — diese Methode führt nur noch den bereits geklärten Auftrag aus,
         /// exakt wie MainViewModel.StartDownload(queue, drive, copyAfter, deleteAfter, slots).
-        /// Die Kopier-Pipeline danach läuft bewusst SEQUENZIELL (erst alle Downloads fertig, dann
-        /// Batch-Kopie) statt wie unter Windows als Channel-basiertes Streaming (Kopie startet dort
-        /// schon für einzelne fertige Downloads, während andere noch laufen) — funktional
-        /// gleichwertig, nur ohne diese Überlappungs-Optimierung (siehe Brainstorming 2026-09-04,
-        /// bewusst zurückgestellt).</summary>
+        /// Nutzerfund (2026-09-06): "Kopie startet nicht sofort nach abgeschlossenem Download" —
+        /// die vorherige Fassung kopierte SEQUENZIELL (erst alle Downloads fertig, dann Batch-
+        /// Kopie). Jetzt wie Windows (StartDownload usePipeline/RunPipelineCopyConsumerAsync) eine
+        /// Channel-basierte Pipeline: jede fertig heruntergeladene Distro wird SOFORT auf den
+        /// Stick kopiert, während andere Downloads noch parallel laufen können.</summary>
         public async Task DownloadQueueAsync(List<IsoEntry> queue, string? mountPoint, bool copyAfter, bool deleteAfter, int slots)
         {
             if (IsBusy || queue.Count == 0) return;
@@ -663,16 +670,49 @@ namespace ULM.Linux.ViewModels
                     AppendLog(string.Format(LocalizationService.T(Str.Msg_SlowDownload_Body), name, host)));
                 return true;
             };
+
+            // Windows-Pendant: StartDownload usePipeline. Sobald kopiert werden soll UND ein Stick
+            // ausgewählt ist, läuft ein paralleler Consumer, der jede erfolgreich heruntergeladene
+            // Distro sofort über den Channel entgegennimmt und kopiert (RunPipelineCopyConsumerAsync
+            // unten) — statt wie vorher bis zum Ende des GESAMTEN Download-Stapels zu warten.
+            bool usePipeline = copyAfter && mountPoint is not null;
+            System.Threading.Channels.Channel<IsoEntry>? pipelineChannel = null;
+            Task<(int Ok, int Failed)>? pipelineTask = null;
+            if (usePipeline)
+            {
+                pipelineChannel = System.Threading.Channels.Channel.CreateUnbounded<IsoEntry>(new System.Threading.Channels.UnboundedChannelOptions { SingleReader = true });
+                var channelReader = pipelineChannel.Reader; string capMount = mountPoint!;
+                _pipelineCopyCts = new CancellationTokenSource();
+                CancelDownloadCommand.RaiseCanExecuteChanged();
+                pipelineTask = RunPipelineCopyConsumerAsync(channelReader, capMount, deleteAfter, _pipelineCopyCts.Token);
+                worker.ItemCompleted += (entry, success) =>
+                {
+                    if (success && entry.IsLocallyAvailable(_downloadDirectory))
+                    {
+                        pipelineChannel.Writer.TryWrite(entry);
+                        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                        {
+                            UpdateRowLiveStatus(entry.Name, LocalizationService.T(Str.CpStatus_Starting), false);
+                            DownloadItemProgress?.Invoke(entry.Name, 100, LocalizationService.T(Str.CpStatus_Starting), false);
+                            AppendLog(string.Format(LocalizationService.T(Str.Log_MovedToCopyQueue), entry.Name));
+                        });
+                    }
+                };
+            }
+            else
+            {
+                worker.ItemCompleted += (entry, success) =>
+                {
+                    if (success) Avalonia.Threading.Dispatcher.UIThread.Post(() => entry.IsSelected = false);
+                };
+            }
+
             worker.OverallProgress += (pct, detail) => Avalonia.Threading.Dispatcher.UIThread.Post(() => { DownloadPercent = pct; DownloadStatus = detail; });
             worker.SlotUpdated += p => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
             {
                 UpdateRowLiveStatus(p.IsoName, $"{p.Percent}% {p.Status}", p.CanRequestFasterMirror);
                 DownloadItemProgress?.Invoke(p.IsoName, p.Percent, p.Status, p.CanRequestFasterMirror);
             });
-            worker.ItemCompleted += (entry, success) =>
-            {
-                if (success) Avalonia.Threading.Dispatcher.UIThread.Post(() => entry.IsSelected = false);
-            };
 
             var tcs = new TaskCompletionSource<(int Ok, int Failed)>();
             worker.Completed += (ok, failed, _) => Avalonia.Threading.Dispatcher.UIThread.Post(() => tcs.TrySetResult((ok, failed)));
@@ -681,22 +721,27 @@ namespace ULM.Linux.ViewModels
             _db.Save();
             // Download-Phase vorbei — ab hier zeigt _activeDownloadWorker sonst fälschlich auf
             // einen längst fertigen Worker, während die Kopier-Phase (falls sie folgt) über
-            // _activeCopyWorker läuft. Siehe CancelDownloadCommand-Kommentar oben.
+            // _pipelineCopyCts läuft. Siehe CancelDownloadCommand-Kommentar oben.
             _activeDownloadWorker = null;
             DownloadBatchCompleted?.Invoke(okCount, failedCount);
 
             int copyOk = 0, copyFailed = 0;
-            if (copyAfter && okCount > 0 && mountPoint is not null)
+            if (usePipeline)
             {
-                var toCopy = queue.Where(e => e.IsLocallyAvailable(_downloadDirectory)).ToList();
-                (copyOk, copyFailed) = await RunCopyBatchAsync(toCopy, mountPoint, deleteAfter).ConfigureAwait(true);
+                pipelineChannel!.Writer.Complete();
+                (copyOk, copyFailed) = await pipelineTask!.ConfigureAwait(true);
+                _pipelineCopyCts?.Dispose();
+                _pipelineCopyCts = null;
+                UsbService.UpdateVentoyMenu(mountPoint!, _db.Entries);
+                _db.Save();
+                CopyBatchCompleted?.Invoke(copyOk);
                 // Nutzerfund (2026-09-04): "Auf dem Stick"-Spalte blieb nach dem Kopieren auf dem
                 // alten Stand — ScanConnectedStickAsync (setzt UsbStatus) lief bisher NUR über
                 // PollDrivesAsync' "neu erkannter Stick"-Zweig, nie nach einem Kopiervorgang auf
                 // einen bereits bekannten Stick. Direkter Aufruf hier (nicht über PollDrivesAsync'
                 // _lastScannedDeviceNode-Schutz, der genau diesen Fall absichtlich überspringt)
                 // schließt die Lücke, ohne den Neu-Erkennungs-Pfad zu verändern.
-                await ScanConnectedStickAsync(mountPoint).ConfigureAwait(true);
+                await ScanConnectedStickAsync(mountPoint!).ConfigureAwait(true);
             }
 
             _activeDownloadWorker = null;
@@ -706,40 +751,119 @@ namespace ULM.Linux.ViewModels
             CancelDownloadCommand.RaiseCanExecuteChanged();
         }
 
-        /// <summary>Windows-Pendant: MainViewModel.StartCopyToStick()/CopyToUsbWorker-Verdrahtung —
-        /// läuft hier NACH DownloadQueueAsync() statt parallel dazu, siehe dortiger Kommentar.</summary>
-        private Task<(int Ok, int Failed)> RunCopyBatchAsync(List<IsoEntry> toCopy, string mountPoint, bool deleteAfter)
+        /// <summary>Windows-Pendant: MainViewModel.RunPipelineCopyConsumerAsync() — kopiert jede
+        /// über den Channel hereinkommende Distro einzeln auf den Stick, sobald ihr Download fertig
+        /// ist, während andere Downloads noch laufen können (siehe DownloadQueueAsync oben).
+        /// Bewusst eine eigenständige Kopierschleife statt CopyToUsbWorker-Wiederverwendung (der
+        /// nimmt eine feste Liste am Anfang entgegen, keine laufend nachgereichten Einträge) — an
+        /// Puffergröße/Zielpfad-Konvention/Statustexten (Str.CpStatus_*, TransferFormat) trotzdem
+        /// 1:1 an CopyToUsbWorker (Core/Workers/Workers.cs) angelehnt, damit beide Linux-Kopierwege
+        /// gleich klingen, statt Windows' eigene (leicht abweichende) Log-Formulierungen zu
+        /// übernehmen. Bewusst ABWEICHEND von Windows: löscht die Quelldatei nur, wenn deleteAfter
+        /// tatsächlich gesetzt ist — Windows' RunPipelineCopyConsumerAsync löscht dort unbedingt,
+        /// unabhängig vom "danach löschen"-Häkchen (sichtbar inkonsistent zum eigenen Batch-Pfad
+        /// StartCopyToStick, der deleteAfter korrekt prüft); hier bewusst korrekt gehalten statt
+        /// diese Windows-Inkonsistenz nachzubauen.</summary>
+        internal async Task<(int Ok, int Failed)> RunPipelineCopyConsumerAsync(
+            System.Threading.Channels.ChannelReader<IsoEntry> reader, string mountPoint, bool deleteAfter, CancellationToken token)
         {
-            var tcs = new TaskCompletionSource<(int, int)>();
-            if (toCopy.Count == 0) { tcs.SetResult((0, 0)); return tcs.Task; }
+            const int bufSize = 4 * 1024 * 1024;
+            byte[] buf = new byte[bufSize];
+            int copyOkCount = 0, copyFailedCount = 0;
+            string root = UsbService.DriveRoot(mountPoint);
 
-            var worker = new CopyToUsbWorker(toCopy, mountPoint, false, _downloadDirectory);
-            _activeCopyWorker = worker;
-            CancelDownloadCommand.RaiseCanExecuteChanged();
-            worker.Progress += (pct, detail) => Avalonia.Threading.Dispatcher.UIThread.Post(() => { DownloadPercent = pct; CopyStatus = detail; });
-            worker.FileProgress += (name, pct, status) => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            try
             {
-                UpdateRowLiveStatus(name, $"{pct}% {status}", false);
-                CopyItemProgress?.Invoke(name, pct, status);
-            });
-            worker.Completed += (ok, copiedCount, _, message) => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
-            {
-                CopyStatus = message;
-                UsbService.UpdateVentoyMenu(mountPoint, _db.Entries);
-                // Windows-Pendant: MainViewModel.StartCopyToStick() löscht ebenfalls nur bei
-                // ok==true — bei Abbruch/Fehler bleiben die lokalen Quelldateien erhalten (sonst
-                // Datenverlust: ein abgebrochener Kopiervorgang hätte trotzdem alle Quell-ISOs
-                // gelöscht, obwohl der Stick sie gar nicht vollständig hat).
-                if (deleteAfter && ok)
-                    foreach (var e in toCopy)
-                        IsoEntry.TryDelete(System.IO.Path.Combine(_downloadDirectory, e.Filename), line => AppendLog(line));
-                _db.Save();
-                _activeCopyWorker = null;
-                CopyBatchCompleted?.Invoke(copiedCount);
-                tcs.TrySetResult((copiedCount, toCopy.Count - copiedCount));
-            });
-            _ = worker.RunAsync();
-            return tcs.Task;
+                await foreach (var entry in reader.ReadAllAsync(token).ConfigureAwait(false))
+                {
+                    string srcPath = System.IO.Path.Combine(_downloadDirectory, entry.Filename);
+                    string entryName = entry.Name;
+                    if (!System.IO.File.Exists(srcPath))
+                    {
+                        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                        {
+                            CopyItemProgress?.Invoke(entryName, 0, LocalizationService.T(Str.CpStatus_Cancelled));
+                            AppendLog(string.Format(LocalizationService.T(Str.Log_SourceFileNotFound), entryName));
+                        });
+                        copyFailedCount++; continue;
+                    }
+                    long fileSize = new System.IO.FileInfo(srcPath).Length;
+                    try
+                    {
+                        var drv = new System.IO.DriveInfo(root);
+                        if (drv.IsReady && drv.AvailableFreeSpace < fileSize)
+                        {
+                            double neededGb = fileSize / 1_073_741_824.0, freeGb = drv.AvailableFreeSpace / 1_073_741_824.0;
+                            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                            {
+                                CopyItemProgress?.Invoke(entryName, 0, LocalizationService.T(Str.CpStatus_Cancelled));
+                                AppendLog(string.Format(LocalizationService.T(Str.Log_NotEnoughSpace), entryName, mountPoint, neededGb.ToString("F2"), freeGb.ToString("F2")));
+                            });
+                            copyFailedCount++; continue;
+                        }
+                    }
+                    catch { /* Freispeicher-Check ist best-effort, analog zu CopyToUsbWorker */ }
+
+                    string targetDir = System.IO.Path.Combine(root, entry.Category);
+                    System.IO.Directory.CreateDirectory(targetDir);
+                    string targetPath = System.IO.Path.Combine(targetDir, entry.Filename);
+
+                    long copied = 0L; var sw = System.Diagnostics.Stopwatch.StartNew(); long lastMark = 0L; double lastEl = 0.0;
+                    bool copyOk;
+                    try
+                    {
+                        using var src = new System.IO.FileStream(srcPath, System.IO.FileMode.Open, System.IO.FileAccess.Read, System.IO.FileShare.Read, bufSize, System.IO.FileOptions.SequentialScan | System.IO.FileOptions.Asynchronous);
+                        using var dest = new System.IO.FileStream(targetPath, System.IO.FileMode.Create, System.IO.FileAccess.Write, System.IO.FileShare.None, bufSize, System.IO.FileOptions.Asynchronous);
+                        int read;
+                        while ((read = await src.ReadAsync(buf, token).ConfigureAwait(false)) > 0)
+                        {
+                            await dest.WriteAsync(buf.AsMemory(0, read), token).ConfigureAwait(false);
+                            copied += read;
+                            double el = sw.Elapsed.TotalSeconds;
+                            if (el - lastEl >= 0.4 || copied >= fileSize)
+                            {
+                                double bps = (copied - lastMark) / Math.Max(0.001, el - lastEl);
+                                lastMark = copied; lastEl = el;
+                                int pct = fileSize > 0 ? (int)((copied * 100L) / fileSize) : 0;
+                                string det = TransferFormat.BuildDetail(bps, copied, fileSize);
+                                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                                {
+                                    UpdateRowLiveStatus(entryName, $"{pct}% {det}", false);
+                                    CopyItemProgress?.Invoke(entryName, pct, det);
+                                });
+                            }
+                        }
+                        await dest.FlushAsync(token).ConfigureAwait(false);
+                        copyOk = new System.IO.FileInfo(targetPath).Length == fileSize;
+                        if (!copyOk) { try { System.IO.File.Delete(targetPath); } catch { } }
+                    }
+                    catch (Exception ex)
+                    {
+                        try { System.IO.File.Delete(targetPath); } catch { }
+                        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                        {
+                            CopyItemProgress?.Invoke(entryName, 0, string.Format(LocalizationService.T(Str.DlStatus_GeneralError), ex.Message));
+                            AppendLog(string.Format(LocalizationService.T(Str.Log_CopyError), entryName, ex.Message));
+                        });
+                        copyFailedCount++; continue;
+                    }
+                    if (!copyOk)
+                    {
+                        Avalonia.Threading.Dispatcher.UIThread.Post(() => CopyItemProgress?.Invoke(entryName, 0, LocalizationService.T(Str.CpStatus_Cancelled)));
+                        copyFailedCount++; continue;
+                    }
+                    copyOkCount++;
+                    Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                    {
+                        if (deleteAfter) IsoEntry.TryDelete(srcPath, line => AppendLog(line));
+                        entry.IsSelected = false;
+                        UpdateRowLiveStatus(entryName, LocalizationService.T(Str.CpStatus_Done), false);
+                        CopyItemProgress?.Invoke(entryName, 100, LocalizationService.T(Str.CpStatus_Done));
+                    });
+                }
+            }
+            catch (OperationCanceledException) { /* Abbruch über CancelDownloadCommand — kein Fehler */ }
+            return (copyOkCount, copyFailedCount);
         }
 
         private void UpdateRowLiveStatus(string isoName, string status, bool canRequestFasterMirror) =>

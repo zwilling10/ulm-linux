@@ -222,6 +222,85 @@ namespace ULM.Linux.Tests
             Assert.True(db.SaveCount > savesBefore);
         }
 
+        // Windows-Pendant: MainViewModel.RunPipelineCopyConsumerAsync() — Nutzerfund (2026-09-06):
+        // "Kopie startet nicht sofort nach abgeschlossenem Download". Testet die reine Kopierschleife
+        // isoliert (echte lokale Dateien statt Netzwerk-Downloads) über einen befüllten Channel, wie
+        // ihn DownloadQueueAsync normalerweise aus den ItemCompleted-Ereignissen des DownloadWorker
+        // speist.
+        // Prüft absichtlich NICHT, ob die Quelldatei nach deleteAfter:true verschwunden ist — das
+        // Löschen läuft (wie der gesamte übrige Zeilen-Status in dieser Methode) über
+        // Dispatcher.UIThread.Post, bewusst NICHT blockierend (siehe Klassenkommentar zum
+        // Freeze-Bugfix 2026-09-05) — in einem Test-Host ohne laufende Avalonia-Message-Pump ist
+        // der genaue Ausführungszeitpunkt dieses Post() nicht deterministisch abwartbar. Die
+        // deleteAfter-Verzweigung selbst wird durch den zweiten Test unten (deleteAfter:false →
+        // Datei bleibt garantiert bestehen) abgedeckt.
+        [Fact]
+        public async System.Threading.Tasks.Task RunPipelineCopyConsumerAsync_CopiesFileToStickAndReportsSuccess()
+        {
+            string downloadDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"ulm-pipeline-src-{Guid.NewGuid():N}");
+            string stickDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"ulm-pipeline-stick-{Guid.NewGuid():N}");
+            System.IO.Directory.CreateDirectory(downloadDir);
+            System.IO.Directory.CreateDirectory(stickDir);
+            try
+            {
+                string filename = "test-distro.iso";
+                string srcPath = System.IO.Path.Combine(downloadDir, filename);
+                System.IO.File.WriteAllBytes(srcPath, new byte[1024]);
+
+                var vm = new LinuxMainViewModel(new FakeIsoDatabaseService(), downloadDir);
+                var entry = new IsoEntry { Name = "Test Distro", Category = "Testen", Filename = filename };
+
+                var channel = System.Threading.Channels.Channel.CreateUnbounded<IsoEntry>();
+                channel.Writer.TryWrite(entry);
+                channel.Writer.Complete();
+
+                var (ok, failed) = await vm.RunPipelineCopyConsumerAsync(channel.Reader, stickDir, deleteAfter: true, System.Threading.CancellationToken.None);
+
+                Assert.Equal(1, ok);
+                Assert.Equal(0, failed);
+                Assert.True(System.IO.File.Exists(System.IO.Path.Combine(stickDir, "Testen", filename)));
+            }
+            finally
+            {
+                try { System.IO.Directory.Delete(downloadDir, true); } catch { }
+                try { System.IO.Directory.Delete(stickDir, true); } catch { }
+            }
+        }
+
+        [Fact]
+        public async System.Threading.Tasks.Task RunPipelineCopyConsumerAsync_DeleteAfterFalse_KeepsSourceFile()
+        {
+            string downloadDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"ulm-pipeline-src-{Guid.NewGuid():N}");
+            string stickDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"ulm-pipeline-stick-{Guid.NewGuid():N}");
+            System.IO.Directory.CreateDirectory(downloadDir);
+            System.IO.Directory.CreateDirectory(stickDir);
+            try
+            {
+                string filename = "test-distro.iso";
+                string srcPath = System.IO.Path.Combine(downloadDir, filename);
+                System.IO.File.WriteAllBytes(srcPath, new byte[1024]);
+
+                var vm = new LinuxMainViewModel(new FakeIsoDatabaseService(), downloadDir);
+                var entry = new IsoEntry { Name = "Test Distro", Category = "Testen", Filename = filename };
+
+                var channel = System.Threading.Channels.Channel.CreateUnbounded<IsoEntry>();
+                channel.Writer.TryWrite(entry);
+                channel.Writer.Complete();
+
+                // Windows-Pendant löscht hier unbedingt (Nutzerfund-Analyse, siehe RunPipelineCopyConsumerAsync-
+                // Kommentar) — Linux respektiert deleteAfter=false bewusst korrekt.
+                var (ok, _) = await vm.RunPipelineCopyConsumerAsync(channel.Reader, stickDir, deleteAfter: false, System.Threading.CancellationToken.None);
+
+                Assert.Equal(1, ok);
+                Assert.True(System.IO.File.Exists(srcPath));
+            }
+            finally
+            {
+                try { System.IO.Directory.Delete(downloadDir, true); } catch { }
+                try { System.IO.Directory.Delete(stickDir, true); } catch { }
+            }
+        }
+
         [Fact]
         public void CancelDownloadCommand_DisabledWithoutRunningDownload()
         {
