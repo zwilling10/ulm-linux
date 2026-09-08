@@ -226,6 +226,25 @@ namespace ULM.Core.Services
             catch (Exception ex) { Debug.WriteLine($"[GetString] {url}: {ex.Message}"); return null; }
         }
 
+        /// <summary>Roh-Bytes-Abruf (z.B. Vorschaubilder) — kein String-Cache wie bei
+        /// GetStringAsync (Binärdaten, kein Sinn), kein EnsureSuccessStatusCode (ein 404 — z.B.
+        /// eine Distro ohne DistroWatch-Screenshot — ist ein normaler, erwarteter Fall, kein
+        /// Fehler, der geloggt werden müsste).</summary>
+        public async Task<byte[]?> GetBytesAsync(string url, int timeoutSeconds = 15)
+        {
+            if (string.IsNullOrWhiteSpace(url)) return null;
+            try
+            {
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds));
+                using var req = new HttpRequestMessage(HttpMethod.Get, url);
+                ApplyPageUserAgentOverride(req);
+                using HttpResponseMessage resp = await _client.SendAsync(req, cts.Token).ConfigureAwait(false);
+                if (!resp.IsSuccessStatusCode) return null;
+                return await resp.Content.ReadAsByteArrayAsync(cts.Token).ConfigureAwait(false);
+            }
+            catch (Exception ex) { Debug.WriteLine($"[GetBytes] {url}: {ex.Message}"); return null; }
+        }
+
         public async Task<double> MeasureDownloadSpeedMbpsAsync(CancellationToken ct, long testBytes = 4_000_000)
         {
             try
