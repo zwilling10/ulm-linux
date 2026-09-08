@@ -47,9 +47,7 @@ namespace ULM.Linux.ViewModels
             }
         }
 
-        /// <summary>Windows-Pendant: IsoEntryViewModel.GetForeground(). UsbStatus.Ok/Outdated-
-        /// Zweige bleiben inaktiv (auf Linux bislang immer UsbStatus.Unknown, kein Stick-Scan
-        /// füllt das Feld — siehe Kommentar bei <see cref="UsbStatus"/>), keine erfundene Logik.</summary>
+        /// <summary>Windows-Pendant: IsoEntryViewModel.GetForeground().</summary>
         public IBrush ForegroundBrush
         {
             get
@@ -126,15 +124,13 @@ namespace ULM.Linux.ViewModels
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanRequestFasterMirror)));
         }
 
-        /// <summary>Windows-Spalte "Auf dem Stick". Nutzt das bereits im geteilten Core-Modell
-        /// vorhandene <see cref="IsoEntry.UsbStatus"/>-Feld — auf Linux bislang IMMER
-        /// <see cref="UsbStatus.Unknown"/> ("-"), da kein Stick-Scan es befüllt (kein
-        /// LinuxUsbService-Äquivalent zum Windows-Katalog-Scan). Absichtlich keine erfundenen
-        /// Werte: das Feld zeigt ehrlich "unbekannt", bis eine spätere Phase den Scan nachliefert.</summary>
+        /// <summary>Windows-Spalte "Auf dem Stick" — inkl. Größenangabe wie unter Windows
+        /// ("Ja 3,56 GB"/"Veraltet 3,20 GB"), befüllt durch LinuxMainViewModel.ApplyStickResults()
+        /// nach jedem automatischen Stick-Scan.</summary>
         public string UsbStatus => Entry.UsbStatus switch
         {
-            Core.Models.UsbStatus.Ok       => LocalizationService.T(Str.Row_Yes),
-            Core.Models.UsbStatus.Outdated => LocalizationService.T(Str.Row_Yes),
+            Core.Models.UsbStatus.Ok       => string.IsNullOrEmpty(Entry.UsbSize) ? LocalizationService.T(Str.Row_Yes) : $"{LocalizationService.T(Str.Row_Yes)} {Entry.UsbSize}",
+            Core.Models.UsbStatus.Outdated => string.IsNullOrEmpty(Entry.UsbSize) ? LocalizationService.T(Str.Row_Outdated) : $"{LocalizationService.T(Str.Row_Outdated)} {Entry.UsbSize}",
             Core.Models.UsbStatus.Missing  => LocalizationService.T(Str.Row_No),
             _                               => "-",
         };
