@@ -588,6 +588,10 @@ namespace ULM.Linux.ViewModels
         /// Scan fälschlich alles auf "Missing" gesetzt).</summary>
         private IReadOnlyList<UsbService.StickIso>? _lastStickListing;
 
+        /// <summary>Für MainWindow.axaml.cs' StaleDuplicatesOnStickDetected-Handler — findet den
+        /// physischen Pfad einer als veraltetes Duplikat gemeldeten Stick-Datei.</summary>
+        public IReadOnlyList<UsbService.StickIso> LastStickListing => _lastStickListing ?? Array.Empty<UsbService.StickIso>();
+
         private void ApplyFilter()
         {
             if (SelectedDrive?.MountPoint is not null && _lastStickListing is not null)
@@ -1284,6 +1288,7 @@ namespace ULM.Linux.ViewModels
                 var (found, incomplete) = await UsbService.Instance.ScanStickVerifiedAsync(mountPoint, _db.Entries).ConfigureAwait(true);
                 _lastStickListing = found;
                 ApplyStickResults(found);
+                ClassifyStickFindings(found, mountPoint);
                 ApplyFilter();
                 // Diagnose (Nutzerfund 2026-09-06): bisher loggte diese Methode im Erfolgsfall GAR
                 // NICHTS — "keine weitere Zeile im Protokoll" ließ sich dadurch nicht von "Scan lief
@@ -1314,6 +1319,80 @@ namespace ULM.Linux.ViewModels
                 if (other is not null) { e.UsbStatus = Core.Models.UsbStatus.Outdated; e.UsbSize = FormatGb(other.Size); }
                 else { e.UsbStatus = Core.Models.UsbStatus.Missing; e.UsbSize = string.Empty; }
             }
+        }
+
+        // ── Stufe 3 der automatischen Stick-Erkennung (Nutzerwunsch 2026-09-08, "unbekannte/
+        // doppelte/neuere ISOs"). Windows-Pendant: MainViewModel.ProcessStickScanResults() —
+        // bewusst vereinfacht: Windows unterscheidet zusätzlich einen "Versionscheck-Kontext"-Pfad
+        // (oldFn-Dictionary aus TriggerAutoVersionCheck) von einem kontextfreien Fallback
+        // (DistroMatcher.FindKnownDistroForStickFile). Hier wird IMMER nur der kontextfreie Pfad
+        // genutzt — deckt exakt dieselben drei Fälle ab (neuer/dupliziert/unbekannt), nur ohne die
+        // Optimierung "schon über den Versionscheck erkannt, nicht doppelt melden". "Missing on
+        // Stick" (lokal vollständig, aber nicht auf dem gerade gescannten Stick) bewusst NICHT
+        // Teil dieser Phase, siehe MainWindow.axaml.cs RunLocalFileMaintenanceAsync-Kommentar. ──
+        public event Action<List<(IsoEntry DbEntry, UsbService.StickIso StickIso)>, string>? NewerVersionsOnStickDetected;
+        public event Action<List<UsbService.StickIso>, string>? UnknownIsosOnStickDetected;
+        public event Action<List<(IsoEntry Entry, string OldFilename)>, string>? StaleDuplicatesOnStickDetected;
+
+        private readonly HashSet<string> _newerVersionOfferedKeys = new();
+        private readonly HashSet<string> _unknownStickIsoOfferedKeys = new();
+        public bool MarkNewerVersionOffered(string drive, string filename) => _newerVersionOfferedKeys.Add($"{drive}|{filename}");
+        public bool MarkUnknownStickIsoOffered(string drive, string filename) => _unknownStickIsoOfferedKeys.Add($"{drive}|{filename}");
+
+        private void ClassifyStickFindings(IReadOnlyList<UsbService.StickIso> found, string mountPoint)
+        {
+            var dbFn = new HashSet<string>(_db.Entries.Select(e => e.Filename).Where(f => !string.IsNullOrEmpty(f)), StringComparer.OrdinalIgnoreCase);
+            var unmatched = found.Where(f => !string.IsNullOrWhiteSpace(f.Filename) && !dbFn.Contains(f.Filename)).ToList();
+
+            var newer = new List<(IsoEntry, UsbService.StickIso)>();
+            var duplicates = new List<(IsoEntry, string)>();
+            var trueUnknowns = new List<UsbService.StickIso>();
+            foreach (var f in unmatched)
+            {
+                var match = DistroMatcher.FindKnownDistroForStickFile(_db.Entries, f.Filename);
+                if (match is null) trueUnknowns.Add(f);
+                else if (match.Value.StickIsNewer) newer.Add((match.Value.Entry, f));
+                else duplicates.Add((match.Value.Entry, f.Filename));
+            }
+
+            var freshDuplicates = duplicates; // Löschen macht sie beim nächsten Scan von selbst verschwinden — kein Mark-Offered nötig, siehe Windows-Pendant OnStaleDuplicatesOnStick.
+            if (freshDuplicates.Count > 0) StaleDuplicatesOnStickDetected?.Invoke(freshDuplicates, mountPoint);
+
+            var freshNewer = newer.Where(n => MarkNewerVersionOffered(mountPoint, n.Item2.Filename)).ToList();
+            if (freshNewer.Count > 0) NewerVersionsOnStickDetected?.Invoke(freshNewer, mountPoint);
+
+            var freshUnknowns = trueUnknowns.Where(u => MarkUnknownStickIsoOffered(mountPoint, u.Filename)).ToList();
+            if (freshUnknowns.Count > 0) UnknownIsosOnStickDetected?.Invoke(freshUnknowns, mountPoint);
+        }
+
+        /// <summary>Windows-Pendant: MainViewModel.ReplaceEntryVersion() — übernimmt den neuen
+        /// Stick-Dateinamen in einen bestehenden Katalog-Eintrag (kein Duplikat).</summary>
+        public void ReplaceEntryVersion(IsoEntry e, string newFn)
+        {
+            string oldFn = e.Filename;
+            string oldVer = HttpService.ExtractVersion(oldFn);
+            if (string.IsNullOrEmpty(oldVer)) oldVer = HttpService.ExtractVersion(e.Name);
+            string newVer = HttpService.ExtractVersion(newFn);
+            e.Filename = newFn; e.RemoteVersion = string.Empty; e.RemoteUrl = string.Empty;
+            e.RemoteFilename = string.Empty; e.UpdateAvailable = false;
+            if (!string.IsNullOrEmpty(oldVer) && !string.IsNullOrEmpty(newVer) && oldVer != newVer)
+            {
+                int pos = e.Name.IndexOf(oldVer, StringComparison.Ordinal);
+                if (pos >= 0) e.Name = e.Name[..pos] + newVer + e.Name[(pos + oldVer.Length)..];
+            }
+            AppendLog(string.Format(LocalizationService.T(Str.Log_FilenameReplaced), e.Name, oldFn, newFn));
+            _db.Save();
+        }
+
+        /// <summary>Windows-Pendant: MainViewModel.AddEntryFromStickVersion() — legt einen NEUEN,
+        /// vom bestehenden Eintrag unabhängigen Katalog-Eintrag für die Stick-Version an.</summary>
+        public IsoEntry AddEntryFromStickVersion(IsoEntry src, UsbService.StickIso si)
+        {
+            var e = new IsoEntry { Name = src.Name, Category = src.Category, Filename = si.Filename, GithubRepo = src.GithubRepo, GithubAsset = src.GithubAsset, Tip = src.Tip, ImportedFromStick = true };
+            _db.Add(e);
+            AppendLog(string.Format(LocalizationService.T(Str.Log_EntryAddedSimple), e.Name, e.Filename));
+            _db.Save();
+            return e;
         }
 
         private static string FormatGb(long bytes) => $"{bytes / 1_073_741_824.0:F2} GB";

@@ -29,11 +29,21 @@ namespace ULM.Linux.Views
 
         private void WireViewModel()
         {
-            if (_vm is not null) { _vm.HealthCheckCompleted -= OnHealthCheckCompleted; _vm.AutoVersionCheckCompleted -= OnAutoVersionCheckCompleted; }
+            if (_vm is not null)
+            {
+                _vm.HealthCheckCompleted -= OnHealthCheckCompleted;
+                _vm.AutoVersionCheckCompleted -= OnAutoVersionCheckCompleted;
+                _vm.NewerVersionsOnStickDetected -= OnNewerVersionsOnStickDetected;
+                _vm.UnknownIsosOnStickDetected -= OnUnknownIsosOnStickDetected;
+                _vm.StaleDuplicatesOnStickDetected -= OnStaleDuplicatesOnStickDetected;
+            }
             _vm = DataContext as LinuxMainViewModel;
             if (_vm is not null)
             {
                 _vm.HealthCheckCompleted += OnHealthCheckCompleted;
+                _vm.NewerVersionsOnStickDetected += OnNewerVersionsOnStickDetected;
+                _vm.UnknownIsosOnStickDetected += OnUnknownIsosOnStickDetected;
+                _vm.StaleDuplicatesOnStickDetected += OnStaleDuplicatesOnStickDetected;
                 // Windows-Pendant: MainWindow.xaml.cs' `_vm.AutoVersionCheckCompleted += async () =>
                 // { ... await RunLocalFileMaintenanceAsync(); }` — läuft genau einmal pro Sitzung,
                 // direkt nach dem ersten abgeschlossenen Online-Versionscheck ("Datenmüll-Schutz",
@@ -108,6 +118,76 @@ namespace ULM.Linux.Views
             if (_orphanCheckDone) return;
             _orphanCheckDone = true;
             await RunLocalFileMaintenanceAsync();
+        }
+
+        /// <summary>Windows-Pendant: MainWindow.xaml.cs' StaleDuplicatesOnStickDetected-Handler
+        /// (OnStaleDuplicatesOnStick) — veraltete Duplikate (alte Version derselben Distro noch auf
+        /// dem Stick, aktuelle Version bereits vorhanden) zum Löschen anbieten. Bewusst vereinfacht:
+        /// findet den physischen Pfad direkt über den bereits vom Scan bekannten alten Dateinamen
+        /// statt Windows' zusätzlicher FindOldDuplicatePath-Rekursion (der Linux-Scan liefert die
+        /// vollen Pfade bereits über UsbService.StickIso.FullPath).</summary>
+        private async void OnStaleDuplicatesOnStickDetected(List<(IsoEntry Entry, string OldFilename)> duplicates, string mountPoint)
+        {
+            if (_vm is null || duplicates.Count == 0) return;
+            var files = new List<(string Path, long Size)>();
+            foreach (var (_, oldFilename) in duplicates)
+            {
+                var stickIso = _vm.LastStickListing.FirstOrDefault(s => string.Equals(s.Filename, oldFilename, System.StringComparison.OrdinalIgnoreCase));
+                if (stickIso is not null) files.Add((stickIso.FullPath, stickIso.Size));
+            }
+            if (files.Count == 0) return;
+
+            var dlg = new OrphanedDownloadsDialog(files, LocalizationService.T(Str.Msg_OutdatedDuplicates_Title), LocalizationService.T(Str.Msg_OutdatedDuplicates_Description));
+            if (!await dlg.ShowDialog<bool>(this)) return;
+            int deleted = 0;
+            foreach (string path in dlg.ToDelete)
+                if (IsoEntry.TryDelete(path, line => _vm.LogEntries.Add(line))) deleted++;
+            _vm.LogEntries.Add(string.Format(LocalizationService.T(Str.Log_StaleDuplicatesDeletedStatus), deleted, mountPoint));
+        }
+
+        /// <summary>Windows-Pendant: MainWindow.xaml.cs' NewerVersionsOnStickDetected-Handler —
+        /// bietet je gefundener neuerer Stick-Version Replace/Add/Skip an.</summary>
+        private async void OnNewerVersionsOnStickDetected(List<(IsoEntry DbEntry, UsbService.StickIso StickIso)> matches, string mountPoint)
+        {
+            if (_vm is null || matches.Count == 0) return;
+            var dlg = new NewerVersionOnStickDialog(matches);
+            if (await dlg.ShowDialog<bool>(this) != true) return;
+            int replaced = 0, added = 0;
+            foreach (var (dbEntry, stickIso, choice) in dlg.Results)
+            {
+                switch (choice)
+                {
+                    case NewerVersionChoice.Replace: _vm.ReplaceEntryVersion(dbEntry, stickIso.Filename); replaced++; break;
+                    case NewerVersionChoice.Add: _vm.AddEntryFromStickVersion(dbEntry, stickIso); added++; break;
+                }
+            }
+            if (replaced > 0 || added > 0) _vm.RefreshRows();
+            if (added > 0) _vm.RunHealthCheckCommand.Execute(null);
+        }
+
+        /// <summary>Windows-Pendant: MainWindow.xaml.cs' UnknownIsosOnStickDetected-Handler —
+        /// unbekannte ISO-Dateien auf dem Stick zum Importieren anbieten (Name/Kategorie/URL
+        /// zuweisen), verschiebt sie danach in den passenden Kategorie-Ordner.</summary>
+        private async void OnUnknownIsosOnStickDetected(List<UsbService.StickIso> unknowns, string mountPoint)
+        {
+            if (_vm is null || unknowns.Count == 0) return;
+            var dlg = new ImportStickIsosDialog(unknowns);
+            if (await dlg.ShowDialog<bool>(this) != true || dlg.ImportedEntries.Count == 0) return;
+
+            int movedFailed = 0;
+            foreach (var (entry, sourcePath) in dlg.ImportedEntries)
+            {
+                if (UsbService.MoveToCategoryFolder(sourcePath, mountPoint, entry.NormalizedCategory, entry.Filename, line => _vm.LogEntries.Add(line)))
+                    _vm.LogEntries.Add(string.Format(LocalizationService.T(Str.Log_FileMovedToCategory), entry.Filename, entry.NormalizedCategory));
+                else movedFailed++;
+                _vm.AddImportedEntry(entry);
+            }
+            IsoDatabaseService.Instance.Save();
+            _vm.RefreshRows();
+            _vm.LogEntries.Add(string.Format(LocalizationService.T(Str.Log_IsosAddedToDb), dlg.ImportedEntries.Count)
+                + (movedFailed > 0 ? string.Format(LocalizationService.T(Str.Log_MoveFailedSuffix), movedFailed) : "") + ".");
+            UsbService.UpdateVentoyMenu(mountPoint, IsoDatabaseService.Instance.Entries);
+            _vm.RunHealthCheckCommand.Execute(null);
         }
 
         /// <summary>Windows-Pendant: MainWindow.xaml.cs CheckUlmUpdateAsync — bewusst deutlich
