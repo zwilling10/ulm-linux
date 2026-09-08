@@ -133,7 +133,7 @@ namespace ULM.Linux.Views
 
                 foreach (DiscoveredDistro d in result.Items)
                 {
-                    var row = new Grid { Margin = new Thickness(0, 2, 0, 2), ColumnDefinitions = new ColumnDefinitions("34,*,150,Auto") };
+                    var row = new Grid { Margin = new Thickness(0, 2, 0, 2), ColumnDefinitions = new ColumnDefinitions("34,*,32,150,Auto") };
                     ApplyRowHighlight(row, d);
 
                     // Nutzerfund (2026-09-03, Screenshot): Checkbox wirkte "abgeschnitten" — die
@@ -154,6 +154,20 @@ namespace ULM.Linux.Views
                     Grid.SetColumn(nameTb, 1);
                     row.Children.Add(nameTb);
 
+                    // Nutzerfund (2026-09-08, Screenshot): "genau links neben der Kategorie fehlt
+                    // der Button" — eigenes Vorschau-Fenster statt/zusätzlich zum Mouseover-Tooltip
+                    // (der bei kurzem Antippen auf Touch-/Laptop-Trackpads unpraktisch ist). Zeigt
+                    // denselben Inhalt wie BuildInfoTooltip, nur als klick-bares Fenster.
+                    var previewBtn = new Button
+                    {
+                        Content = "👁", Classes = { "ghost" }, Width = 28, Height = 28, Padding = new Thickness(0),
+                        VerticalAlignment = VerticalAlignment.Center, HorizontalContentAlignment = HorizontalAlignment.Center,
+                    };
+                    ToolTip.SetTip(previewBtn, LocalizationService.T(Str.Db_PreviewButtonTooltip));
+                    previewBtn.Click += async (_, _) => await InfoDialog.ShowAsync(this, d.Name, BuildInfoTooltip(d));
+                    Grid.SetColumn(previewBtn, 2);
+                    row.Children.Add(previewBtn);
+
                     // Nutzerfund (2026-09-03, Screenshot "Beliebteste"-Tab): Kategorie-Dropdowns
                     // wirkten zeilenweise uneinheitlich ausgerichtet — im Gegensatz zu chk/nameTb/
                     // infoTb hier VerticalAlignment=Center gefehlt (Grid-Zellen defaulten auf
@@ -162,11 +176,11 @@ namespace ULM.Linux.Views
                     // unterschiedlichen Zeilenhöhen) leicht schwankende Zeilenhöhe.
                     var catCb = new ComboBox { Margin = new Thickness(6, 2), VerticalAlignment = VerticalAlignment.Center, IsEnabled = !d.AlreadyInDb };
                     DbFieldHelpers.FillCategoryCombo(catCb, d.SuggestedCategory);
-                    Grid.SetColumn(catCb, 2);
+                    Grid.SetColumn(catCb, 3);
                     row.Children.Add(catCb);
 
                     var infoTb = new TextBlock { Text = d.Info, FontSize = 10.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 4, 4, 4), Foreground = BrushDim };
-                    Grid.SetColumn(infoTb, 3);
+                    Grid.SetColumn(infoTb, 4);
                     row.Children.Add(infoTb);
 
                     tab.RowsPanel.Children.Add(row);

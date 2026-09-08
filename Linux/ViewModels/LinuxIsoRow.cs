@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Text;
 using Avalonia.Media;
 using ULM.Core.Models;
 using ULM.Infrastructure;
@@ -44,6 +45,33 @@ namespace ULM.Linux.ViewModels
                 string urlTag = Entry.UrlChecked ? (Entry.UrlOk ? " 🌐✓" : " 🌐✗") : string.Empty;
                 string verTag = Entry.HasResolvedUpdate ? $"  🆕 v{Entry.RemoteVersion}" : string.Empty;
                 return $"{prefix}{Entry.Name}{urlTag}{verTag}";
+            }
+        }
+
+        /// <summary>Windows-Pendant: IsoEntryViewModel.TipTooltip (ViewModels/IsoViewModels.cs) —
+        /// Nutzerfund (2026-09-08): "Mouse-over-Fenster fehlen" in der Hauptliste. Erklärt alle
+        /// aktuell sichtbaren Symbole (📥/🌐✓/🌐✗/🆕) und zeigt danach die Distro-Beschreibung.
+        /// Gibt null zurück statt eines leeren Tooltips, wenn nichts davon vorhanden ist.</summary>
+        public string? TipTooltip
+        {
+            get
+            {
+                var sb = new StringBuilder();
+                if (Entry.ImportedFromStick) sb.AppendLine(LocalizationService.T(Str.Row_TipImported));
+                if (Entry.UrlChecked) sb.AppendLine(Entry.UrlOk ? LocalizationService.T(Str.Row_TipUrlOk) : LocalizationService.T(Str.Row_TipUrlFail));
+                if (Entry.HasResolvedUpdate) sb.AppendLine(string.Format(LocalizationService.T(Str.Row_TipNewVersion), Entry.RemoteVersion));
+                bool hasSymbols = sb.Length > 0;
+
+                string description = LocalizationService.Current == AppLanguage.English && !string.IsNullOrWhiteSpace(Entry.TipEn)
+                    ? Entry.TipEn : Entry.Tip;
+                if (!string.IsNullOrWhiteSpace(description))
+                {
+                    if (hasSymbols) sb.AppendLine("─────────────────────────");
+                    sb.Append(description);
+                }
+
+                string result = sb.ToString().Trim();
+                return string.IsNullOrEmpty(result) ? null : result;
             }
         }
 
@@ -146,6 +174,7 @@ namespace ULM.Linux.ViewModels
         public void RaiseDisplayChanged()
         {
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Name)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(TipTooltip)));
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ForegroundBrush)));
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SizeLabel)));
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(StatusLabel)));

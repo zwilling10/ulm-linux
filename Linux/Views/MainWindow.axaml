@@ -176,7 +176,8 @@
                                                             <TextBlock Grid.Column="2" Text="{Binding Name}"
                                                                        Foreground="{Binding ForegroundBrush}"
                                                                        FontSize="12.5" FontWeight="SemiBold"
-                                                                       VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                                                                       VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                                                       ToolTip.Tip="{Binding TipTooltip}"/>
                                                             <!-- Spalte 3 ist fest 100px breit (siehe ColumnDefinitions oben) — der
                                                                  Live-Fortschrittstext während eines Downloads ("8% ↓ host.tld —
                                                                  53 MB/2.9 GB · 26 MB/s") ist deutlich länger als "nicht lokal" und

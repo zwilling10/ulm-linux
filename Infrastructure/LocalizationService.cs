@@ -1121,6 +1121,8 @@ namespace ULM.Infrastructure
             [Str.Linux_Log_StickScanFailed] = "Stick-Scan fehlgeschlagen: {0}",
 
             [Str.Linux_Download_FasterMirrorTooltip] = "Schnelleren Mirror versuchen",
+
+            [Str.Db_PreviewButtonTooltip] = "Vorschau",
         };
 
         private static readonly Dictionary<Str, string> En = new()
@@ -2192,6 +2194,8 @@ namespace ULM.Infrastructure
             [Str.Linux_Log_StickScanFailed] = "Stick scan failed: {0}",
 
             [Str.Linux_Download_FasterMirrorTooltip] = "Try a faster mirror",
+
+            [Str.Db_PreviewButtonTooltip] = "Preview",
         };
     }
 }

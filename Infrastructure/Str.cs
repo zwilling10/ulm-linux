@@ -566,5 +566,7 @@ namespace ULM.Infrastructure
         Linux_Log_StickScanFailed,
 
         Linux_Download_FasterMirrorTooltip,
+
+        Db_PreviewButtonTooltip,
     }
 }
