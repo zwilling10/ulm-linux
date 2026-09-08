@@ -2,11 +2,16 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:ULM.Linux.ViewModels"
         xmlns:linux="using:ULM.Linux"
+        xmlns:conv="using:ULM.Linux.Converters"
         x:Class="ULM.Linux.Views.MainWindow"
         x:DataType="vm:LinuxMainViewModel"
         Title="Universal Linux Manager"
         Width="1160" Height="750" MinWidth="900" MinHeight="580"
         WindowStartupLocation="CenterScreen">
+
+    <Window.Resources>
+        <conv:TooltipGateConverter x:Key="TooltipGateConverter"/>
+    </Window.Resources>
 
     <!--
         Struktur an Windows' Views/MainWindow.xaml angeglichen (Phase A, siehe
@@ -176,8 +181,19 @@
                                                             <TextBlock Grid.Column="2" Text="{Binding Name}"
                                                                        Foreground="{Binding ForegroundBrush}"
                                                                        FontSize="12.5" FontWeight="SemiBold"
-                                                                       VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
-                                                                       ToolTip.Tip="{Binding TipTooltip}"/>
+                                                                       VerticalAlignment="Center" TextTrimming="CharacterEllipsis">
+                                                                <!-- Nutzerfund (2026-09-08): "Checkbox (Mouse over) hat keine
+                                                                     Funktion, wird auch bei Abwahl angezeigt" — ShowInfoOnHover
+                                                                     (Fenster-DataContext) war nie mit TipTooltip (Zeilen-
+                                                                     DataContext) verdrahtet. MultiBinding kombiniert beide,
+                                                                     reagiert live auf die Checkbox. -->
+                                                                <ToolTip.Tip>
+                                                                    <MultiBinding Converter="{StaticResource TooltipGateConverter}">
+                                                                        <Binding Path="TipTooltip"/>
+                                                                        <Binding Path="$parent[Window].((vm:LinuxMainViewModel)DataContext).ShowInfoOnHover"/>
+                                                                    </MultiBinding>
+                                                                </ToolTip.Tip>
+                                                            </TextBlock>
                                                             <!-- Spalte 3 ist fest 100px breit (siehe ColumnDefinitions oben) — der
                                                                  Live-Fortschrittstext während eines Downloads ("8% ↓ host.tld —
                                                                  53 MB/2.9 GB · 26 MB/s") ist deutlich länger als "nicht lokal" und
