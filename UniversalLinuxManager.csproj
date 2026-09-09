@@ -1,0 +1,135 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+
+    <!-- ── Build ──────────────────────────────────────────────────────── -->
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>ULM</RootNamespace>
+
+    <!-- ── Assembly-Metadaten (erscheinen in EXE-Eigenschaften) ─────── -->
+    <AssemblyName>UniversalLinuxManager</AssemblyName>
+    <Product>Universal Linux Manager</Product>
+    <Company>ULM Project</Company>
+    <Copyright>© 2025 ULM Project. Open Source.</Copyright>
+    <Description>Portabler Linux-ISO-Manager mit Ventoy-USB-Unterstützung. Kein Installer nötig — einfach starten.</Description>
+    <Version>2.40.0</Version>
+    <AssemblyVersion>2.40.0.0</AssemblyVersion>
+    <FileVersion>2.40.0.0</FileVersion>
+    <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
+
+    <!--
+      SICHERHEIT/PRIVATSPHÄRE: Ohne DebugType=none betten .NET-Release-Builds den vollen
+      Build-Zeit-Dateipfad (inkl. Windows-Benutzername) als Debug-Metadaten in die EXE/DLL ein
+      (PDB-Pfad + Quelldatei-Pfade der .cs-Dateien) — sichtbar u.a. über Analyse-Tools wie
+      VirusTotal, auch wenn die .pdb-Datei selbst nie mit veröffentlicht wird (siehe
+      build-release.sh, kopiert nur die .exe). Für Release-Builds komplett deaktiviert, da diese
+      EXE öffentlich als GitHub-Release-Asset verteilt wird. Debug-Builds (lokale Entwicklung)
+      behalten volle Symbole für den IDE-Debugger.
+    -->
+    <DebugType Condition="'$(Configuration)'=='Release'">none</DebugType>
+
+    <!-- ── Portable Single-File EXE ─────────────────────────────────── -->
+    <!--
+      Ziel: Eine einzige .exe die auf jedem Windows 10/11 x64 läuft —
+      ohne .NET-Installation, ohne Installer, direkt ausführbar.
+
+      Publish-Befehl:
+        dotnet publish -c Release -r win-x64
+
+      Oder: Doppelklick auf publish.bat im Projektordner.
+    -->
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+
+    <!--
+      PublishReadyToRun: Vorab-Kompilierung für schnelleren Programmstart.
+      (Startet gefühlt wie ein natives Win32-Programm, nicht wie managed .NET)
+    -->
+    <PublishReadyToRun>true</PublishReadyToRun>
+
+    <!--
+      PublishTrimmed: Entfernt nicht verwendeten Code → kleinere EXE.
+      Für WPF auf false lassen — WPF nutzt Reflection intern und
+      würde bei aggressivem Trim instabil werden.
+    -->
+    <PublishTrimmed>false</PublishTrimmed>
+
+    <!--
+      Kein <ApplicationManifest> hier — das .NET 8 SDK generiert
+      automatisch ein standardkonformes Manifest (asInvoker, DPI-aware).
+      Admin-Elevation für Ventoy erfolgt ausschließlich über
+      Verb="runas" in MainViewModel.StartVentoyInstall().
+    -->
+
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Management" Version="8.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="ULM.Assistant\ULM.Assistant.csproj" />
+  </ItemGroup>
+
+  <!-- Erlaubt ULM.Tests Zugriff auf 'internal' Klassen/Methoden (reine Logikfunktionen wie
+       Versions-Parsing/Distro-Namensabgleich, die aus gutem Grund nicht Teil der öffentlichen
+       API sind, aber trotzdem gezielt getestet werden sollen). -->
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>ULM.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- background.png wird als EmbeddedResource in die EXE eingebettet -->
+    <EmbeddedResource Include="background.png" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="scratch_test\**" />
+    <None    Remove="scratch_test\**" />
+    <Content Remove="scratch_test\**" />
+    <EmbeddedResource Remove="scratch_test\**" />
+    <Compile Remove="{Core\**" />
+    <None    Remove="{Core\**" />
+    <Content Remove="{Core\**" />
+    <EmbeddedResource Remove="{Core\**" />
+    <!-- ULM.Tests liegt als Unterordner im selben Verzeichnisbaum — ohne diesen Ausschluss
+         kompiliert der implizite Compile-Glob des Hauptprojekts die Testdateien versehentlich
+         mit (die dort referenzierten xunit-Attribute existieren im Hauptprojekt nicht). -->
+    <Compile Remove="ULM.Tests\**" />
+    <None    Remove="ULM.Tests\**" />
+    <Content Remove="ULM.Tests\**" />
+    <EmbeddedResource Remove="ULM.Tests\**" />
+    <!-- Linux/ enthaelt das eigenstaendige ULM.Linux-Projekt (eigenes .csproj, eigene .axaml/.cs-
+         Dateien, teils dieselben Core-/Infrastructure-Dateien per <Compile Include> zweitverwendet)
+         — ohne diesen Ausschluss kompiliert der implizite Compile-Glob dieses Hauptprojekts sie
+         versehentlich mit (Avalonia-/xunit-Referenzen existieren hier nicht). -->
+    <Compile Remove="Linux\**" />
+    <None    Remove="Linux\**" />
+    <Content Remove="Linux\**" />
+    <EmbeddedResource Remove="Linux\**" />
+    <!-- ULM.Assistant/ enthaelt das eigenstaendige ULM.Assistant-Projekt (eigenes .csproj,
+         eigene .xaml/.cs-Dateien) — ohne diesen Ausschluss kompiliert der implizite Compile-
+         Glob dieses Hauptprojekts sie versehentlich mit (x:Class-/Typ-Duplikate, siehe
+         docs/superpowers/plans/2026-08-10-avatar-assistant.md, Task 7). -->
+    <Compile Remove="ULM.Assistant\**" />
+    <None    Remove="ULM.Assistant\**" />
+    <Content Remove="ULM.Assistant\**" />
+    <EmbeddedResource Remove="ULM.Assistant\**" />
+    <!-- WPF-SDK-Projekte (UseWPF=true) globben .xaml-Dateien zusätzlich über den eigenen
+         'Page'-Item-Typ (MarkupCompilePass1/2) — separat von Compile/None/Content. Ohne diesen
+         Eintrag kompiliert dieses Hauptprojekt AvatarButton.xaml/ChatWindow.xaml zusätzlich
+         selbst und erzeugt eigene .g.cs-Partialklassen ohne den passenden Code-Behind (der ja
+         korrekt via Compile Remove oben ausgeschlossen ist) — Folge: CS1061 auf die Event-
+         Handler. Beim Linux-Projekt trat das nie auf, weil Avalonia .axaml statt .xaml nutzt. -->
+    <Page Remove="ULM.Assistant\**" />
+  </ItemGroup>
+
+</Project>

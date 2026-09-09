@@ -1,0 +1,252 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!--
+        Avalonia-Pendant zu Themes/DarkTheme.xaml (WPF). Gleiche Farb-Keys/Hex-Werte wie dort
+        (Konsistenz + bereits WCAG-AA-geprüfte Kontraste), aber eigene Avalonia-Syntax:
+        ResourceDictionary statt WPF-ControlTemplate/Style.Triggers, Selector-Klassen
+        (":pointerover"/":pressed"/Button.primary usw.) statt Trigger-Elemente.
+    -->
+    <Styles.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Light">
+                <SolidColorBrush x:Key="BrushBg" Color="#F4F7FA"/>
+                <SolidColorBrush x:Key="BrushWhite" Color="#FFFFFF"/>
+                <SolidColorBrush x:Key="BrushHeader" Color="#172B40"/>
+                <SolidColorBrush x:Key="BrushHeaderBar" Color="#E4EDF5"/>
+                <SolidColorBrush x:Key="BrushBlue" Color="#1265A0"/>
+                <SolidColorBrush x:Key="BrushMid" Color="#354C63"/>
+                <SolidColorBrush x:Key="BrushDim" Color="#50657B"/>
+                <SolidColorBrush x:Key="BrushBorder" Color="#9CAFC1"/>
+                <SolidColorBrush x:Key="BrushCard" Color="#E8EFF5"/>
+                <SolidColorBrush x:Key="BrushGreen" Color="#167844"/>
+                <SolidColorBrush x:Key="BrushAmber" Color="#956000"/>
+                <SolidColorBrush x:Key="BrushRed" Color="#B72823"/>
+                <SolidColorBrush x:Key="BrushTeal" Color="#087E70"/>
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Dark">
+                <SolidColorBrush x:Key="BrushBg" Color="#0B1622"/>
+                <SolidColorBrush x:Key="BrushWhite" Color="#132A44"/>
+                <SolidColorBrush x:Key="BrushHeader" Color="#EAF1F8"/>
+                <SolidColorBrush x:Key="BrushHeaderBar" Color="#0F2540"/>
+                <SolidColorBrush x:Key="BrushBlue" Color="#3AAEEF"/>
+                <SolidColorBrush x:Key="BrushMid" Color="#B8C9DC"/>
+                <SolidColorBrush x:Key="BrushDim" Color="#8BA3BE"/>
+                <SolidColorBrush x:Key="BrushBorder" Color="#336B9E"/>
+                <SolidColorBrush x:Key="BrushCard" Color="#132A44"/>
+                <SolidColorBrush x:Key="BrushGreen" Color="#2ECC71"/>
+                <SolidColorBrush x:Key="BrushAmber" Color="#F39C12"/>
+                <SolidColorBrush x:Key="BrushRed" Color="#E74C3C"/>
+                <SolidColorBrush x:Key="BrushTeal" Color="#1ABC9C"/>
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
+        <!-- "Noto Color Emoji" explizit statt nur über den generischen "sans-serif"-Alias zu
+             hoffen: Avalonia/Skia lösen Emoji-Glyph-Fallback über eine EXPLIZIT genannte
+             Schriftliste zuverlässiger auf. Nutzerfund: 🔒 (Sicherheit-Kategorie) rendert fein,
+             🎮 (Gaming-Kategorie) zeigte ein falsches Icon — beide Emojis kommen aus der von
+             Windows mitgenutzten Str.Category_*-Konstante, das ist also ein reines
+             Linux-Rendering-Thema, kein Datenfehler.
+             Nutzerfund (2026-09-03, ISO-Suche-Screenshot): Ziffern/Satzzeichen (Datum, Uhrzeit,
+             "09-02" etc.) erschienen mit sichtbarem Abstand zwischen JEDEM Zeichen ("0 3 . 0 9"
+             statt "03.09"), reine Buchstaben (SlyOS, Einsteiger) unauffällig. Ursache: Auf einem
+             frischen Linux-Mint-System sind weder "Segoe UI" noch "Tahoma" noch "Arial"
+             installiert (`fc-list` bestätigt das) — Avalonia/fontconfig wählt dadurch bereits
+             "Noto Color Emoji" als PRIMÄRschrift für die ganze Liste (nicht nur als Fallback für
+             einzelne fehlende Glyphen). Diese Emoji-Schrift enthält Glyphen für Ziffern/#/* (Basis
+             der Tastenkappen-Emojis 0️⃣-9️⃣), aber mit fester, emoji-breiter Zeichenbreite — daher
+             der optische Abstand. Buchstaben fehlen in "Noto Color Emoji" komplett, fallen also
+             korrekt auf eine echte Textschrift zurück und sehen deshalb normal aus. Fix: "Noto
+             Sans" (auf Linux Mint vorinstalliert, exakt das, worauf der generische "sans-serif"-
+             Alias ohnehin zeigt) VOR "Noto Color Emoji" eingereiht — greift auf Linux jetzt zuerst
+             für normalen Text, "Noto Color Emoji" bleibt als Fallback für echte Emoji-Zeichen
+             erhalten (🔒/🎮-Fix von oben bleibt unverändert wirksam). -->
+        <FontFamily x:Key="FontMain">Segoe UI,Tahoma,Arial,Noto Sans,Noto Color Emoji,sans-serif</FontFamily>
+        </ResourceDictionary>
+    </Styles.Resources>
+
+    <!-- ═══ Fenster-Grundfarben ═══════════════════════════════════════ -->
+    <Style Selector="Window">
+        <Setter Property="Background" Value="{DynamicResource BrushBg}"/>
+        <Setter Property="FontFamily" Value="{DynamicResource FontMain}"/>
+    </Style>
+
+    <!-- Default-Vorgabe für alle TextBlocks (Phase B: neue reine Code-behind-Dialoge wie
+         GitHubTokenDialog/DbHealthCheckDialog setzen dadurch NICHT jede TextBlock-Foreground
+         einzeln — nur die wenigen Sonderfarben wie Grün/Rot bleiben explizit). -->
+    <Style Selector="TextBlock">
+        <Setter Property="Foreground" Value="{DynamicResource BrushHeader}"/>
+    </Style>
+
+    <!-- ═══ Button-Basis ═══════════════════════════════════════════════
+         CornerRadius 5, Höhe 32, Padding 14x7, SemiBold 11.5 — wie WPF BtnBase.
+         Varianten als CSS-artige Klassen: Button.primary/success/warning/danger/ghost/secondary. -->
+    <Style Selector="Button">
+        <Setter Property="FontFamily" Value="{DynamicResource FontMain}"/>
+        <Setter Property="FontSize" Value="11.5"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="Padding" Value="14,7"/>
+        <Setter Property="Height" Value="32"/>
+        <Setter Property="CornerRadius" Value="5"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Background" Value="{DynamicResource BrushCard}"/>
+        <Setter Property="Foreground" Value="{DynamicResource BrushMid}"/>
+    </Style>
+    <Style Selector="Button:pointerover /template/ ContentPresenter">
+        <Setter Property="Opacity" Value="0.85"/>
+    </Style>
+    <Style Selector="Button:pressed /template/ ContentPresenter">
+        <Setter Property="Opacity" Value="0.7"/>
+    </Style>
+    <!-- Erster Versuch (0.4 wie WPF BtnBase, dann 0.7) blieb laut Nutzerfund immer noch schlecht
+         lesbar — Textopazität ist für den ohnehin schon gedimmten BrushMid-Ton (#B8C9DC) generell
+         der falsche Hebel. Farbige Buttons (primary/success/warning/danger, weißer Text auf
+         kräftigem Hintergrund) dürfen weiter abdunkeln, das bleibt lesbar. -->
+    <Style Selector="Button:disabled /template/ ContentPresenter">
+        <Setter Property="Opacity" Value="0.7"/>
+    </Style>
+    <!-- Ghost-Buttons (v.a. die in Phase A bewusst deaktivierten "noch nicht verfügbar"-Buttons in
+         der Aktionsleiste, mit ihrem ohnehin schon gedimmten BrushMid-Text) behalten volle
+         Textdeckkraft — nur der Rahmen wird gedimmt, das reicht als "inaktiv"-Hinweis, ohne den
+         Text unlesbar zu machen. Spezifischerer Selector (Button.ghost:disabled) gewinnt gegen die
+         generische Regel oben. -->
+    <Style Selector="Button.ghost:disabled /template/ ContentPresenter">
+        <Setter Property="Opacity" Value="1"/>
+    </Style>
+    <Style Selector="Button.ghost:disabled">
+        <Setter Property="BorderBrush" Value="{DynamicResource BrushCard}"/>
+        <!-- Explizit statt nur von FluentTheme geerbt — auch mit Mode="Dark" in App.axaml als
+             zweite Absicherung, falls Fluents eigene :disabled-Textfarbe irgendwo doch noch
+             durchschlägt. -->
+        <Setter Property="Foreground" Value="{DynamicResource BrushMid}"/>
+    </Style>
+
+    <Style Selector="Button.primary">
+        <Setter Property="Background" Value="{DynamicResource BrushBlue}"/>
+        <Setter Property="Foreground" Value="White"/>
+    </Style>
+    <Style Selector="Button.success">
+        <Setter Property="Background" Value="{DynamicResource BrushGreen}"/>
+        <Setter Property="Foreground" Value="White"/>
+    </Style>
+    <Style Selector="Button.warning">
+        <Setter Property="Background" Value="{DynamicResource BrushAmber}"/>
+        <Setter Property="Foreground" Value="White"/>
+    </Style>
+    <Style Selector="Button.danger">
+        <Setter Property="Background" Value="{DynamicResource BrushRed}"/>
+        <Setter Property="Foreground" Value="White"/>
+    </Style>
+    <Style Selector="Button.ghost">
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource BrushBorder}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="Foreground" Value="{DynamicResource BrushMid}"/>
+    </Style>
+    <Style Selector="Button.ghost-onbar">
+        <!-- Ghost-Variante für die dunkle Kopfzeile (weiße statt gedimmte Schrift, hellerer Rahmen) —
+             entspricht Windows' Einstellungen-/Hilfe-Buttons mit Foreground="White" BorderBrush="#4A6785". -->
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="BorderBrush" Value="#4A6785"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="Foreground" Value="{DynamicResource BrushHeader}"/>
+    </Style>
+    <Style Selector="Button.secondary">
+        <Setter Property="Background" Value="{DynamicResource BrushCard}"/>
+        <Setter Property="Foreground" Value="{DynamicResource BrushMid}"/>
+    </Style>
+
+    <!-- ═══ TextBox ════════════════════════════════════════════════════ -->
+    <Style Selector="TextBox">
+        <Setter Property="FontFamily" Value="{DynamicResource FontMain}"/>
+        <Setter Property="FontSize" Value="12"/>
+        <Setter Property="Padding" Value="8,5"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource BrushBorder}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="Background" Value="{DynamicResource BrushWhite}"/>
+        <Setter Property="Foreground" Value="{DynamicResource BrushHeader}"/>
+        <Setter Property="CaretBrush" Value="{DynamicResource BrushHeader}"/>
+        <Setter Property="CornerRadius" Value="5"/>
+    </Style>
+
+    <!-- ═══ ComboBox ═══════════════════════════════════════════════════ -->
+    <Style Selector="ComboBox">
+        <Setter Property="FontFamily" Value="{DynamicResource FontMain}"/>
+        <Setter Property="FontSize" Value="12"/>
+        <Setter Property="Padding" Value="8,4"/>
+        <Setter Property="Height" Value="32"/>
+        <Setter Property="Background" Value="{DynamicResource BrushWhite}"/>
+        <Setter Property="Foreground" Value="{DynamicResource BrushHeader}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource BrushBorder}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="CornerRadius" Value="5"/>
+    </Style>
+    <Style Selector="ComboBoxItem">
+        <Setter Property="Padding" Value="8,6"/>
+        <Setter Property="Foreground" Value="{DynamicResource BrushHeader}"/>
+        <Setter Property="Background" Value="{DynamicResource BrushWhite}"/>
+    </Style>
+    <Style Selector="ComboBoxItem:pointerover /template/ ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource BrushCard}"/>
+    </Style>
+
+    <!-- ═══ CheckBox ═══════════════════════════════════════════════════ -->
+    <Style Selector="CheckBox">
+        <Setter Property="FontFamily" Value="{DynamicResource FontMain}"/>
+        <Setter Property="FontSize" Value="12"/>
+        <Setter Property="Foreground" Value="{DynamicResource BrushHeader}"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
+    </Style>
+
+    <!-- ═══ TabControl / TabItem (flach, 2px blaue Unterstreichung bei Auswahl) ═══════════ -->
+    <Style Selector="TabControl">
+        <Setter Property="Background" Value="{DynamicResource BrushWhite}"/>
+    </Style>
+    <Style Selector="TabItem">
+        <Setter Property="FontFamily" Value="{DynamicResource FontMain}"/>
+        <Setter Property="FontSize" Value="12"/>
+        <Setter Property="Padding" Value="18,9"/>
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Foreground" Value="{DynamicResource BrushMid}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource BrushBlue}"/>
+        <Setter Property="BorderThickness" Value="0,0,0,0"/>
+    </Style>
+    <Style Selector="TabItem:selected">
+        <Setter Property="BorderThickness" Value="0,0,0,2"/>
+        <Setter Property="Foreground" Value="{DynamicResource BrushHeader}"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+    </Style>
+    <Style Selector="TabItem:pointerover">
+        <Setter Property="Foreground" Value="{DynamicResource BrushHeader}"/>
+    </Style>
+
+    <!-- ═══ ListBox ════════════════════════════════════════════════════ -->
+    <Style Selector="ListBoxItem">
+        <Setter Property="Padding" Value="6,3"/>
+        <Setter Property="FontFamily" Value="{DynamicResource FontMain}"/>
+        <Setter Property="FontSize" Value="11.5"/>
+        <Setter Property="Foreground" Value="{DynamicResource BrushHeader}"/>
+    </Style>
+
+    <!-- ═══ ProgressBar ════════════════════════════════════════════════ -->
+    <Style Selector="ProgressBar">
+        <Setter Property="Height" Value="6"/>
+        <Setter Property="Background" Value="{DynamicResource BrushCard}"/>
+        <Setter Property="Foreground" Value="{DynamicResource BrushBlue}"/>
+        <Setter Property="BorderThickness" Value="0"/>
+    </Style>
+
+    <!-- ═══ ToolTip ════════════════════════════════════════════════════ -->
+    <Style Selector="ToolTip">
+        <Setter Property="MaxWidth" Value="340"/>
+        <Setter Property="Background" Value="{DynamicResource BrushCard}"/>
+        <Setter Property="Foreground" Value="{DynamicResource BrushHeader}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource BrushBorder}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+    </Style>
+
+    <!-- ═══ ScrollBar (schlank) ════════════════════════════════════════ -->
+    <Style Selector="ScrollBar">
+        <Setter Property="MaxWidth" Value="8"/>
+    </Style>
+</Styles>

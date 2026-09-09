@@ -1,0 +1,607 @@
+// Views/Dialogs/DownloadDialogs.cs
+// DownloadSlotsDialog, DownloadProgressDialog, OrphanedDownloadsDialog, DriveSelectDialog
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Media;
+using ULM.Core.Models;
+using ULM.Core.Services;
+using ULM.Infrastructure;
+
+namespace ULM.Views.Dialogs
+{
+    internal static class AppRes
+    {
+        public static Brush Brush(string key) => (Brush)Application.Current!.Resources[key];
+        public static Style  Style(string key) => (Style)Application.Current!.Resources[key];
+
+        // Aus IsoEditDialog extrahiert (Views/Dialogs/DatabaseDialogs.cs) — zweiter Konsument ist
+        // ManualSourceSearchDialog, das dieselben Bearbeiten-Felder braucht.
+        public static TextBox AddField(StackPanel root, string label, string value, bool multiLine = false)
+        {
+            root.Children.Add(new TextBlock { Text = label, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 2), Foreground = Brush("BrushHeader") });
+            var tb = new TextBox
+            {
+                Text = value, Margin = new Thickness(0, 0, 0, 10),
+                MinHeight = multiLine ? 70 : 30, AcceptsReturn = multiLine,
+                TextWrapping = multiLine ? TextWrapping.Wrap : TextWrapping.NoWrap,
+                VerticalScrollBarVisibility = multiLine ? ScrollBarVisibility.Auto : ScrollBarVisibility.Disabled,
+            };
+            root.Children.Add(tb);
+            return tb;
+        }
+
+        public static ComboBox AddCategoryCombo(StackPanel root, string selected)
+        {
+            root.Children.Add(new TextBlock { Text = LocalizationService.T(Str.Db_Field_Category), FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 2), Foreground = Brush("BrushHeader") });
+            var cb = new ComboBox { Margin = new Thickness(0, 0, 0, 10) };
+            FillCategoryCombo(cb, selected);
+            root.Children.Add(cb);
+            return cb;
+        }
+
+        // Combo-Einträge zeigen das übersetzte Kategorie-Label (Content), der interne, stabile
+        // Kategorie-Schlüssel (z.B. "Einsteiger") bleibt im Tag hinterlegt — SelectedCategory()
+        // liest ihn zurück. Ohne diese Trennung würde die Anzeige (bei Sprachwechsel) den intern
+        // gespeicherten Wert verändern, da WPF-ComboBoxen mit reinen Strings Content == Value setzen.
+        public static void FillCategoryCombo(ComboBox cb, string selected)
+        {
+            foreach (string cat in Constants.Categories)
+                cb.Items.Add(new ComboBoxItem { Content = Constants.CategoryLabel(cat), Tag = cat });
+            string sel = Constants.Categories.Contains(selected) ? selected : "Einsteiger";
+            cb.SelectedItem = cb.Items.Cast<ComboBoxItem>().FirstOrDefault(i => (string)i.Tag == sel);
+        }
+
+        public static string SelectedCategory(ComboBox cb) =>
+            (cb.SelectedItem as ComboBoxItem)?.Tag as string ?? "Einsteiger";
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // DownloadSlotsDialog
+    // ═══════════════════════════════════════════════════════════════════
+    public sealed class DownloadSlotsDialog : Window
+    {
+        public int ChosenSlots { get; private set; } = 1;
+
+        private readonly int       _maxSlots;
+        private int                _recommended = 1;
+        private bool               _testDone;
+        private readonly TextBlock _statusText;
+        private readonly TextBlock _resultText;
+        private readonly Slider    _slider;
+        private readonly TextBlock _sliderValueText;
+        private readonly CheckBox  _chkAuto;
+        private readonly Button    _btnOk;
+
+        public DownloadSlotsDialog(int queueCount, int maxSlots)
+        {
+            _maxSlots = Math.Max(1, Math.Min(maxSlots, queueCount));
+            Title = LocalizationService.T(Str.Dl_SlotsDialog_Title);
+            Width = 460; Height = 380;
+            WindowStartupLocation = WindowStartupLocation.CenterOwner;
+            ResizeMode = ResizeMode.NoResize;
+            Background = AppRes.Brush("BrushBg");
+
+            var root = new StackPanel { Margin = new Thickness(22) };
+
+            root.Children.Add(new TextBlock
+            {
+                Text = string.Format(LocalizationService.T(Str.Dl_SlotsSelectedCount), queueCount),
+                FontWeight = FontWeights.Bold, FontSize = 14,
+                Margin = new Thickness(0, 0, 0, 14), TextWrapping = TextWrapping.Wrap,
+                Foreground = AppRes.Brush("BrushHeader"),
+            });
+
+            _statusText = new TextBlock { Text = LocalizationService.T(Str.Dl_TestingSpeed), FontSize = 12.5, Foreground = AppRes.Brush("BrushMid"), Margin = new Thickness(0, 0, 0, 8) };
+            root.Children.Add(_statusText);
+
+            _resultText = new TextBlock { Text = string.Empty, FontSize = 12, Visibility = Visibility.Collapsed, Margin = new Thickness(0, 0, 0, 18), TextWrapping = TextWrapping.Wrap, Foreground = AppRes.Brush("BrushBlue") };
+            root.Children.Add(_resultText);
+
+            root.Children.Add(new TextBlock { Text = LocalizationService.T(Str.Dl_Label_ParallelDownloads), FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 6), Foreground = AppRes.Brush("BrushHeader") });
+
+            var slRow = new Grid();
+            slRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            slRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            _slider = new Slider { Minimum = 1, Maximum = _maxSlots, Value = 1, TickFrequency = 1, IsSnapToTickEnabled = true, IsEnabled = false, VerticalAlignment = VerticalAlignment.Center };
+            _sliderValueText = new TextBlock { Text = "1", FontWeight = FontWeights.Bold, Width = 28, TextAlignment = TextAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0), Foreground = AppRes.Brush("BrushHeader") };
+            _slider.ValueChanged += (_, _) => _sliderValueText!.Text = ((int)_slider.Value).ToString();
+
+            Grid.SetColumn(_slider, 0); slRow.Children.Add(_slider);
+            Grid.SetColumn(_sliderValueText, 1); slRow.Children.Add(_sliderValueText);
+            root.Children.Add(slRow);
+
+            _chkAuto = new CheckBox { Content = LocalizationService.T(Str.Dl_Chk_UseRecommendation), IsChecked = true, Margin = new Thickness(0, 14, 0, 0), FontSize = 12 };
+            _chkAuto.Checked   += (_, _) => ApplyAutoState(true);
+            _chkAuto.Unchecked += (_, _) => ApplyAutoState(false);
+            root.Children.Add(_chkAuto);
+
+            var btnRow = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 28, 0, 0) };
+            var bCancel = new Button { Content = LocalizationService.T(Str.Dl_Btn_Cancel), Width = 100, Style = AppRes.Style("BtnGhost"), Margin = new Thickness(0, 0, 8, 0) };
+            bCancel.Click += (_, _) => { DialogResult = false; Close(); };
+            _btnOk = new Button { Content = LocalizationService.T(Str.Dl_Btn_StartDownloads), Width = 175, Style = AppRes.Style("BtnPrimary"), IsEnabled = false };
+            _btnOk.Click += (_, _) => { ChosenSlots = (int)_slider.Value; DialogResult = true; Close(); };
+            btnRow.Children.Add(bCancel); btnRow.Children.Add(_btnOk);
+            root.Children.Add(btnRow);
+            Content = root;
+            Loaded += async (_, _) => await RunSpeedTestAsync();
+        }
+
+        private void ApplyAutoState(bool auto) { _slider.IsEnabled = !auto && _testDone; if (auto) _slider.Value = _recommended; }
+
+        private async Task RunSpeedTestAsync()
+        {
+            double mbps = await HttpService.Instance.MeasureDownloadSpeedMbpsAsync(CancellationToken.None).ConfigureAwait(true);
+            _recommended = RecommendSlots(mbps, _maxSlots); _testDone = true;
+            _statusText.Visibility = Visibility.Collapsed; _resultText.Visibility = Visibility.Visible;
+            _resultText.Text = mbps > 0
+                ? string.Format(LocalizationService.T(Str.Dl_SpeedTestResult), mbps.ToString("F1"), _recommended)
+                : string.Format(LocalizationService.T(Str.Dl_SpeedTestFailed), _recommended);
+            _slider.Value = _recommended; _slider.IsEnabled = _chkAuto.IsChecked != true; _btnOk.IsEnabled = true;
+        }
+
+        private static int RecommendSlots(double mbps, int max) => Math.Max(1, Math.Min(max, mbps switch
+        { <= 0 => 2, < 8 => 1, < 25 => 2, < 60 => 3, < 120 => 4, < 250 => 5, _ => 6 }));
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // DownloadProgressDialog
+    // ═══════════════════════════════════════════════════════════════════
+    public sealed class DownloadProgressDialog : Window
+    {
+        public event Action? CancelRequested;
+        // Anwender-Klick auf den "(schneller)"-Button einer Zeile — der Server läuft zwar über der
+        // Geschwindigkeits-Wächter-Schwelle (sonst wäre der Download schon automatisch abgebrochen
+        // worden), ist dem Anwender aber trotzdem zu langsam. Träger ist der Distro-Name.
+        public event Action<string>? FasterMirrorRequested;
+        // Klick auf "🔧 Quelle manuell suchen" bei einem Eintrag, für den ResolveLatestAsync gar
+        // keine URL fand (DownloadWorker.DownloadSlotArgs.NoUrlFound) — siehe UpdateDownload/AddRow.
+        // Trägt wie FasterMirrorRequested den Distro-Namen.
+        public event Action<string>? ManualSearchRequested;
+
+        private readonly StackPanel  _itemsPanel;
+        private readonly TextBlock   _summaryText;
+        private readonly StackPanel  _overallPanel;
+        private readonly ProgressBar _overallBar;
+        private readonly TextBlock   _overallText;
+        private readonly int         _total;
+        private readonly bool        _hasDownload;
+        private readonly bool        _hasCopy;
+
+        private sealed class Row
+        {
+            public required Border      Container;
+            public required TextBlock   NameText;
+            public required ProgressBar Bar;
+            public required TextBlock   PercentText;
+            public required TextBlock   StatusText;
+            public required Button      FasterBtn;
+            public required Button      ManualSearchBtn;
+            public required string      OriginalName;
+        }
+
+        // UiRow wird null, sobald die Zeile nach erfolgreichem Abschluss aus der Liste entfernt
+        // wurde — der Zustand bleibt aber für den Gesamt-Fortschritt erhalten.
+        private sealed class ItemState
+        {
+            public Row?   UiRow;
+            public double DlFrac;    // 0..1 Download-Anteil
+            public double CopyFrac;  // 0..1 Kopier-Anteil
+            public bool   Done;
+        }
+
+        private readonly Dictionary<string, ItemState> _items = new(StringComparer.OrdinalIgnoreCase);
+
+        public DownloadProgressDialog(IEnumerable<string> isoNames, bool hasDownload = true, bool hasCopy = false)
+        {
+            var names = isoNames.ToList();
+            _total = names.Count; _hasDownload = hasDownload; _hasCopy = hasCopy;
+            Title = LocalizationService.T(Str.Dl_ProgressDialog_Title);
+            Width = 540;
+            // Feste Höhe (480) zeigte bei mehreren parallelen Downloads nur einen Bruchteil der
+            // Zeilen — der Rest war nur per Scrollbalken erreichbar, wo die %-Anzeige kaum noch zu
+            // sehen war. SizeToContent.Height lässt das Fenster stattdessen mit der tatsächlichen
+            // Zeilenzahl wachsen; MaxHeight (analog SetupDialog-Fix) deckelt das am tatsächlich
+            // verfügbaren Arbeitsbereich des Zielsystems — erst darüber greift wieder der
+            // ScrollViewer der Zeilenliste (Star-Zeile verhält sich bei SizeToContent wie Auto und
+            // wird erst am MaxHeight-Deckel zum kompressiblen, scrollbaren Bereich).
+            double maxH = SystemParameters.WorkArea.Height - 60;
+            MinHeight = Math.Min(320, maxH);
+            MaxHeight = Math.Max(320, maxH);
+            SizeToContent = SizeToContent.Height;
+            WindowStartupLocation = WindowStartupLocation.CenterOwner;
+            Background = AppRes.Brush("BrushBg");
+
+            var root = new Grid { Margin = new Thickness(18) };
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+            var header = new StackPanel();
+            _summaryText = new TextBlock { Text = LocalizationService.T(names.Count == 1 ? Str.Dl_DownloadRunningSingle : Str.Dl_DownloadRunningMultiple), FontWeight = FontWeights.Bold, FontSize = 14, Margin = new Thickness(0, 0, 0, 10), Foreground = AppRes.Brush("BrushHeader") };
+            header.Children.Add(_summaryText);
+
+            // Gesamt-Fortschrittsbalken: nur bei mehreren Einträgen sinnvoll (bei einem einzigen
+            // genügt dessen eigener Balken). Läuft auch während der Stick-Kopie weiter, wenn diese
+            // länger dauert als der Download.
+            _overallPanel = new StackPanel { Margin = new Thickness(0, 0, 0, 12), Visibility = _total > 1 ? Visibility.Visible : Visibility.Collapsed };
+            _overallText  = new TextBlock { Text = string.Format(LocalizationService.T(Str.Dl_OverallStatus), 0, 0, _total), FontSize = 10.5, Foreground = AppRes.Brush("BrushDim"), Margin = new Thickness(0, 0, 0, 3) };
+            _overallBar   = new ProgressBar { Minimum = 0, Maximum = 100, Value = 0, Height = 8 };
+            _overallPanel.Children.Add(_overallText);
+            _overallPanel.Children.Add(_overallBar);
+            header.Children.Add(_overallPanel);
+
+            Grid.SetRow(header, 0); root.Children.Add(header);
+
+            var scroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Padding = new Thickness(0, 0, 14, 0) };
+            _itemsPanel = new StackPanel();
+            scroll.Content = _itemsPanel;
+            Grid.SetRow(scroll, 1); root.Children.Add(scroll);
+
+            foreach (string name in names) GetOrCreate(name);
+
+            var btnRow = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 14, 0, 0) };
+            var bCan = new Button { Content = LocalizationService.T(Str.Dl_Btn_CancelX), Width = 120, Style = AppRes.Style("BtnDanger"), Margin = new Thickness(0, 0, 8, 0) };
+            bCan.Click += (_, _) => CancelRequested?.Invoke();
+            var bClose = new Button { Content = LocalizationService.T(Str.Db_Btn_CloseSimple), Width = 110, Style = AppRes.Style("BtnGhost") };
+            bClose.Click += (_, _) => Close();
+            btnRow.Children.Add(bCan); btnRow.Children.Add(bClose);
+            Grid.SetRow(btnRow, 2); root.Children.Add(btnRow);
+            Content = root;
+        }
+
+        private Row AddRow(string name)
+        {
+            var border = new Border { BorderBrush = AppRes.Brush("BrushBorder"), BorderThickness = new Thickness(0, 0, 0, 1), Padding = new Thickness(0, 8, 0, 8) };
+            var stack = new StackPanel();
+
+            var hRow = new Grid();
+            hRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            hRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            hRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var nameText = new TextBlock { Text = name, FontWeight = FontWeights.SemiBold, FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis, Foreground = AppRes.Brush("BrushHeader") };
+            Grid.SetColumn(nameText, 0); hRow.Children.Add(nameText);
+
+            // Nur sichtbar, während ein Mirror-Versuch läuft, der über der Geschwindigkeits-Wächter-
+            // Schwelle liegt, ABER noch mindestens ein weiterer (bereits gemessener) Mirror übrig ist —
+            // siehe UpdateDownload/DownloadWorker.ActiveAttempt.HasMoreMirrors.
+            var fasterBtn = CreateFasterMirrorButton();
+            fasterBtn.Click += (_, _) => FasterMirrorRequested?.Invoke(name);
+            Grid.SetColumn(fasterBtn, 1); hRow.Children.Add(fasterBtn);
+
+            var pctText  = new TextBlock { Text = "0%", FontSize = 11, Margin = new Thickness(8, 0, 0, 0), Foreground = AppRes.Brush("BrushBlue"), VerticalAlignment = VerticalAlignment.Center };
+            Grid.SetColumn(pctText, 2); hRow.Children.Add(pctText);
+            stack.Children.Add(hRow);
+
+            var bar = new ProgressBar { Minimum = 0, Maximum = 100, Value = 0, Height = 8, Margin = new Thickness(0, 5, 0, 3) };
+            stack.Children.Add(bar);
+
+            // Statuszeile: Text links, "🔧 Quelle manuell suchen" rechts — erscheint nur, wenn
+            // ResolveLatestAsync für DIESEN Versuch gar keine URL fand (siehe UpdateDownload). Der
+            // Nutzer soll den Härtefall-Ausweg genau dort sehen, wo der Fehlschlag angezeigt wird,
+            // statt bis zu 2 weitere App-Starts auf den 🔧-Button in der Hauptliste warten zu müssen
+            // (siehe IsoEntryViewModel.ShowManualSearchButton / Constants.ManualSearchFailureThreshold).
+            var statRow = new DockPanel();
+            var manualBtn = new Button
+            {
+                Content = LocalizationService.T(Str.Dl_Btn_ManualSearch), Style = AppRes.Style("BtnGhost"),
+                FontSize = 10, Padding = new Thickness(6, 1, 6, 1), Height = 20,
+                Visibility = Visibility.Collapsed, Margin = new Thickness(8, 0, 0, 0),
+            };
+            manualBtn.Click += (_, _) => ManualSearchRequested?.Invoke(name);
+            DockPanel.SetDock(manualBtn, Dock.Right);
+            statRow.Children.Add(manualBtn);
+            var stat = new TextBlock { Text = LocalizationService.T(Str.Dl_Waiting), FontSize = 10.5, Foreground = AppRes.Brush("BrushDim"), TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center };
+            statRow.Children.Add(stat); // zuletzt hinzugefügt → füllt (DockPanel.LastChildFill) den Rest der Zeile
+            stack.Children.Add(statRow);
+
+            border.Child = stack;
+            _itemsPanel.Children.Add(border);
+            return new Row { Container = border, NameText = nameText, Bar = bar, PercentText = pctText, StatusText = stat, FasterBtn = fasterBtn, ManualSearchBtn = manualBtn, OriginalName = name };
+        }
+
+        // Kleiner, pillenförmiger ("runder") Button mit Text "(schneller)" — bricht auf Klick den
+        // aktuellen Mirror-Download-Versuch ab und wechselt zum nächsten, vom Mirror-Race bereits
+        // gemessenen Kandidaten (siehe DownloadWorker.RequestFasterMirror).
+        private static Button CreateFasterMirrorButton()
+        {
+            var borderFactory = new FrameworkElementFactory(typeof(Border));
+            borderFactory.Name = "Bd";
+            borderFactory.SetBinding(Border.BackgroundProperty, new System.Windows.Data.Binding(nameof(Button.Background)) { RelativeSource = System.Windows.Data.RelativeSource.TemplatedParent });
+            borderFactory.SetValue(Border.CornerRadiusProperty, new CornerRadius(9));
+            borderFactory.SetValue(Border.PaddingProperty, new Thickness(9, 0, 9, 0));
+            var contentFactory = new FrameworkElementFactory(typeof(ContentPresenter));
+            contentFactory.SetValue(ContentPresenter.HorizontalAlignmentProperty, HorizontalAlignment.Center);
+            contentFactory.SetValue(ContentPresenter.VerticalAlignmentProperty, VerticalAlignment.Center);
+            borderFactory.AppendChild(contentFactory);
+
+            var template = new ControlTemplate(typeof(Button)) { VisualTree = borderFactory };
+            template.Triggers.Add(new Trigger { Property = Button.IsMouseOverProperty, Value = true, Setters = { new Setter(Border.OpacityProperty, 0.8, "Bd") } });
+            template.Triggers.Add(new Trigger { Property = Button.IsPressedProperty,   Value = true, Setters = { new Setter(Border.OpacityProperty, 0.6, "Bd") } });
+
+            return new Button
+            {
+                Content = LocalizationService.T(Str.Dl_Btn_Faster),
+                FontSize = 8, Height = 18,
+                Background = AppRes.Brush("BrushBlue"), Foreground = Brushes.White,
+                BorderThickness = new Thickness(0), Cursor = Cursors.Hand,
+                Template = template,
+                ToolTip = LocalizationService.T(Str.Dl_Tooltip_Faster),
+                Visibility = Visibility.Collapsed,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(8, 0, 0, 0),
+            };
+        }
+
+        private ItemState GetOrCreate(string name)
+        {
+            if (_items.TryGetValue(name, out var s)) return s;
+            s = new ItemState { UiRow = AddRow(name) };
+            _items[name] = s;
+            return s;
+        }
+
+        // Einfache Schwellenwert-Färbung nach FORTSCHRITT (nicht nach Geschwindigkeit — die variiert
+        // je nach Stick/Mirror zu stark, um dafür feste Werte sinnvoll festzulegen): früh im Verlauf
+        // gedämpft (Amber), im Hauptteil die normale Akzentfarbe (Blau), kurz vor Ende Grün.
+        private static Brush ProgressColor(int percent) =>
+            percent >= 90 ? AppRes.Brush("BrushGreen")
+            : percent < 30 ? AppRes.Brush("BrushAmber")
+            : AppRes.Brush("BrushBlue");
+
+        // Download-Fortschritt eines Eintrags. Im reinen Download-Modus (keine Stick-Kopie) gilt der
+        // Eintrag bei 100 % als erfolgreich fertig und wird entfernt.
+        public void UpdateDownload(string name, int percent, string status, bool canFasterMirror = false, bool noUrlFound = false)
+        {
+            var it = GetOrCreate(name); if (it.Done) return;
+            int c = Math.Max(0, Math.Min(100, percent));
+            it.DlFrac = c / 100.0;
+            if (it.UiRow is { } r)
+            {
+                r.Bar.Value = c; r.Bar.Foreground = ProgressColor(c); r.PercentText.Text = $"{c}%"; r.StatusText.Text = status;
+                r.FasterBtn.Visibility = canFasterMirror ? Visibility.Visible : Visibility.Collapsed;
+                r.ManualSearchBtn.Visibility = noUrlFound ? Visibility.Visible : Visibility.Collapsed;
+            }
+            if (!_hasCopy && c >= 100) { MarkDone(name, removeRow: true); return; }
+            RecomputeOverall();
+        }
+
+        // Kopier-Fortschritt eines Eintrags. Erreicht der Wert 100 %, war die Stick-Kopie erfolgreich
+        // (die Worker melden Fehlschläge mit 0 %, nicht mit 100 %) → Eintrag entfernen.
+        public void UpdateCopy(string name, int percent, string status)
+        {
+            var it = GetOrCreate(name); if (it.Done) return;
+            int c = Math.Max(0, Math.Min(100, percent));
+            it.CopyFrac = c / 100.0;
+            if (it.UiRow is { } r)
+            {
+                r.NameText.Text = string.Format(LocalizationService.T(Str.Dl_CopyingToStickSuffix), r.OriginalName);
+                r.Bar.Value = c; r.Bar.Foreground = ProgressColor(c); r.PercentText.Text = $"{c}%"; r.StatusText.Text = status;
+                r.FasterBtn.Visibility = Visibility.Collapsed; // Mirror-Wahl betrifft nur den Download, nicht die Stick-Kopie.
+            }
+            if (c >= 100) { MarkDone(name, removeRow: true); return; }
+            RecomputeOverall();
+        }
+
+        // Voranstellbares Phasen-Label (z.B. beim reinen Kopiervorgang bereits vor dem ersten
+        // Fortschritts-Tick).
+        public void SetPhaseLabel(string name, string? phaseSuffix)
+        {
+            var it = GetOrCreate(name);
+            if (it.UiRow is { } r)
+                r.NameText.Text = string.IsNullOrWhiteSpace(phaseSuffix) ? r.OriginalName : $"{r.OriginalName}  —  {phaseSuffix}";
+        }
+
+        private void MarkDone(string name, bool removeRow)
+        {
+            var it = GetOrCreate(name);
+            if (it.Done) return;
+            it.Done = true; it.DlFrac = 1; it.CopyFrac = 1;
+            if (removeRow && it.UiRow is { } r) { _itemsPanel.Children.Remove(r.Container); it.UiRow = null; }
+            RecomputeOverall();
+        }
+
+        // Liefert (erfolgreich, gesamt) über ALLE jemals in diesem Fenster angezeigten Einträge — nicht
+        // nur die des zuletzt abgeschlossenen Teil-Vorgangs. Grundlage für eine korrekte Kopfzeilen-
+        // Zusammenfassung auch nach einem Einzel-Retry (siehe MainWindow.OpenManualSearchFromDownloadFailure):
+        // ein per "🔧 Quelle manuell suchen" nachträglich erfolgreicher Eintrag löste bisher einen NEUEN
+        // DownloadBatchCompleted-Event mit NUR seinen eigenen Zahlen (z.B. "1 erfolgreich") aus, der die
+        // ursprüngliche Zusammenfassung (z.B. "0 erfolgreich, 1 fehlgeschlagen") komplett überschrieb, statt
+        // sie zu korrigieren.
+        public (int Succeeded, int Total) GetOverallCounts() => (_items.Values.Count(i => i.Done), _total);
+
+        private void RecomputeOverall()
+        {
+            if (_total <= 0) return;
+            double sum = 0; int done = 0;
+            foreach (var it in _items.Values)
+            {
+                if (it.Done) { sum += 1.0; done++; }
+                else if (_hasDownload && _hasCopy) sum += 0.5 * it.DlFrac + 0.5 * it.CopyFrac;
+                else if (_hasCopy)                 sum += it.CopyFrac;
+                else                               sum += it.DlFrac;
+            }
+            int pct = (int)Math.Round(sum * 100.0 / _total);
+            pct = Math.Max(0, Math.Min(100, pct));
+            _overallBar.Value = pct;
+            _overallBar.Foreground = ProgressColor(pct);
+            _overallText.Text = string.Format(LocalizationService.T(Str.Dl_OverallStatus), pct, done, _total);
+        }
+
+        // BUGFIX: Gesamt-Balken/-Text wurden hier bisher hart auf 100%/"{_total}/{_total} fertig"
+        // gesetzt — unabhängig vom tatsächlichen Ergebnis. Schlug z.B. die anschließende Stick-Kopie
+        // fehl, blieb der über UpdateCopy korrekt NICHT als fertig markierte Eintrag unsichtbar, weil
+        // diese Methode den echten Zwischenstand einfach überschrieb. RecomputeOverall() zählt die
+        // tatsächlich fertigen Einträge (ItemState.Done) und liefert damit den echten Endstand.
+        public void SetOverallComplete(string summary)
+        {
+            RecomputeOverall();
+            bool allDone = _items.Values.All(it => it.Done);
+            _summaryText.Text = string.Format(LocalizationService.T(allDone ? Str.Log_OperationSucceededLogPrefix : Str.Dl_SummaryPartial), summary);
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // OrphanedDownloadsDialog
+    // ═══════════════════════════════════════════════════════════════════
+    public sealed class OrphanedDownloadsDialog : Window
+    {
+        public List<string> ToDelete { get; } = new();
+        private readonly Dictionary<string, CheckBox> _checks = new();
+
+        public OrphanedDownloadsDialog(List<(string Path, long Size)> files,
+            string? title = null,
+            string? itemLabel = null)
+        {
+            Title = title ?? LocalizationService.T(Str.Dl_OrphanedDefaultTitle);
+            string resolvedItemLabel = itemLabel ?? LocalizationService.T(Str.Dl_OrphanedDefaultItemLabel);
+            Width = 560; Height = 460;
+            WindowStartupLocation = WindowStartupLocation.CenterScreen;
+            Background = AppRes.Brush("BrushBg");
+
+            var root = new Grid { Margin = new Thickness(20) };
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+            root.Children.Add(new TextBlock { Text = string.Format(LocalizationService.T(Str.Dl_OrphanedFoundText), files.Count, resolvedItemLabel), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 14), FontSize = 12.5, Foreground = AppRes.Brush("BrushHeader") });
+
+            var scroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+            var list   = new StackPanel();
+            foreach (var (path, size) in files)
+            {
+                var chk = new CheckBox { Content = $"{Path.GetFileName(path)}   ({FormatBytes(size)})", IsChecked = true, Margin = new Thickness(0, 4, 0, 4), FontSize = 11.5 };
+                _checks[path] = chk; list.Children.Add(chk);
+            }
+            scroll.Content = list;
+            Grid.SetRow(scroll, 1); root.Children.Add(scroll);
+
+            var br = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 16, 0, 0) };
+            var bSkip = new Button { Content = LocalizationService.T(Str.Db_Btn_Skip), Width = 120, Style = AppRes.Style("BtnGhost"), Margin = new Thickness(0, 0, 8, 0) };
+            bSkip.Click += (_, _) => { DialogResult = false; Close(); };
+            var bDel = new Button { Content = LocalizationService.T(Str.Dl_Btn_DeleteSelected), Width = 190, Style = AppRes.Style("BtnDanger") };
+            bDel.Click += (_, _) =>
+            {
+                ToDelete.Clear();
+                foreach (var kvp in _checks) if (kvp.Value.IsChecked == true) ToDelete.Add(kvp.Key);
+                DialogResult = true; Close();
+            };
+            br.Children.Add(bSkip); br.Children.Add(bDel);
+            Grid.SetRow(br, 2); root.Children.Add(br);
+            Content = root;
+        }
+
+        private static string FormatBytes(long bytes)
+        {
+            string[] u = { "B", "KB", "MB", "GB" }; double v = bytes; int i = 0;
+            while (v >= 1024 && i < u.Length - 1) { v /= 1024; i++; }
+            return i == 0 ? $"{(long)v} {u[i]}" : $"{v:F1} {u[i]}";
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // DriveSelectDialog — Auswahl des richtigen USB-Sticks bei mehreren
+    //
+    // Wird angezeigt wenn mehr als ein Wechseldatenträger erkannt wird
+    // und der Benutzer Ventoy installieren/aktualisieren möchte.
+    // Zeigt alle erkannten Laufwerke mit Buchstabe, Label und Größe an,
+    // damit der Anwender sicher das richtige Ziel auswählt.
+    // ═══════════════════════════════════════════════════════════════════
+    public sealed class DriveSelectDialog : Window
+    {
+        public UsbDrive? SelectedDrive { get; private set; }
+
+        private readonly ComboBox _combo;
+
+        /// <summary>
+        /// headerText: null = Standardtext für die Ventoy-Installation (bisheriges Verhalten).
+        /// preselect: welches Laufwerk im ComboBox vorausgewählt sein soll (z.B. das aktuell aktive
+        /// SelectedDrive) statt immer Index 0 — wichtig für den "bleiben oder wechseln?"-Anwendungsfall,
+        /// bei dem "Abbrechen"/direkt "Auswählen" ohne Umschalten die bisherige Auswahl behalten soll.
+        /// </summary>
+        public DriveSelectDialog(IReadOnlyList<UsbDrive> drives, string? headerText = null, UsbDrive? preselect = null)
+        {
+            Title  = LocalizationService.T(Str.Dl_DriveSelectDialog_Title);
+            // BUGFIX: feste Height=240 reichte bei längeren Überschriften (z.B. dem neuen "Es sind
+            // N USB-Sticks angeschlossen …"-Text) nicht aus — der untere Bereich inkl. der Buttons
+            // wurde vom Fensterrand abgeschnitten, da kein ScrollViewer und kein Auto-Sizing vorhanden
+            // war. SizeToContent lässt das Fenster immer exakt so hoch werden wie sein Inhalt.
+            Width  = 440; SizeToContent = SizeToContent.Height;
+            WindowStartupLocation = WindowStartupLocation.CenterOwner;
+            ResizeMode = ResizeMode.NoResize;
+            Background = AppRes.Brush("BrushBg");
+
+            var root = new StackPanel { Margin = new Thickness(24, 20, 24, 20) };
+
+            root.Children.Add(new TextBlock
+            {
+                Text         = headerText ?? string.Format(LocalizationService.T(Str.Dl_DefaultHeaderText), drives.Count),
+                TextWrapping = TextWrapping.Wrap,
+                FontSize     = 12.5,
+                Margin       = new Thickness(0, 0, 0, 18),
+                Foreground   = AppRes.Brush("BrushHeader"),
+            });
+
+            _combo = new ComboBox
+            {
+                Margin  = new Thickness(0, 0, 0, 8),
+                FontSize = 13,
+                Padding  = new Thickness(8, 7, 8, 7),
+            };
+
+            foreach (var drive in drives)
+            {
+                string label = string.IsNullOrWhiteSpace(drive.Label) ? LocalizationService.T(Str.Dl_NoName) : drive.Label;
+                double gb    = drive.SizeBytes / 1_073_741_824.0;
+                bool   isV   = UsbService.IsVentoyInstalled(drive.Letter);
+                string tag   = isV ? LocalizationService.T(Str.Dl_VentoyPresentTag) : "";
+
+                _combo.Items.Add(new ComboBoxItem
+                {
+                    Content = string.Format(LocalizationService.T(Str.Dl_DriveComboItem), drive.Letter, label, gb.ToString("F0"), tag),
+                    Tag     = drive,
+                    FontWeight = isV ? FontWeights.SemiBold : FontWeights.Normal,
+                });
+            }
+            int preselectIndex = preselect is null ? -1 : drives.ToList().FindIndex(d => d.Letter == preselect.Letter);
+            _combo.SelectedIndex = preselectIndex >= 0 ? preselectIndex : 0;
+            root.Children.Add(_combo);
+
+            // Hinweis-Text unter dem ComboBox
+            root.Children.Add(new TextBlock
+            {
+                Text       = LocalizationService.T(Str.Dl_VentoyDriveHint),
+                FontSize   = 10.5,
+                Foreground = AppRes.Brush("BrushDim"),
+                Margin     = new Thickness(0, 4, 0, 20),
+                TextWrapping = TextWrapping.Wrap,
+            });
+
+            var btnRow = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+            // BUGFIX: BtnGhost (nur 1px Rand, kein Hintergrund) hob sich auf diesem Dialog kaum vom
+            // Fenster-Hintergrund (BrushBg) ab — der Button war praktisch nicht als solcher erkennbar.
+            // BtnSecondary (gefüllter BrushCard-Hintergrund) ist deutlich sichtbarer.
+            var bCancel = new Button { Content = LocalizationService.T(Str.Dl_Btn_Cancel), Width = 100, Style = AppRes.Style("BtnSecondary"), Margin = new Thickness(0, 0, 8, 0) };
+            bCancel.Click += (_, _) => { DialogResult = false; Close(); };
+            var bOk = new Button { Content = LocalizationService.T(Str.Dl_Btn_Select), Width = 130, Style = AppRes.Style("BtnPrimary") };
+            bOk.Click += (_, _) =>
+            {
+                if (_combo.SelectedItem is ComboBoxItem ci && ci.Tag is UsbDrive d)
+                    SelectedDrive = d;
+                DialogResult = SelectedDrive is not null;
+                Close();
+            };
+            btnRow.Children.Add(bCancel); btnRow.Children.Add(bOk);
+            root.Children.Add(btnRow);
+            Content = root;
+        }
+    }
+}
