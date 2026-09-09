@@ -1,0 +1,57 @@
+name: Release
+
+# Läuft nur bei einem Tag-Push nach Schema "v*" (z.B. v2.45.0) — baut die self-contained
+# Single-File-Linux-x64-Binary (Einstellungen bereits in Linux/ULM.Linux.csproj: SelfContained,
+# PublishSingleFile, InvariantGlobalization) und hängt sie automatisch als GitHub-Release-Asset
+# an, analog zum bestehenden Windows-Release-Workflow im Haupt-ULM-Repo.
+on:
+  push:
+    tags:
+      - "v*"
+  # Manuelles Nachtriggern für einen bereits existierenden Tag, falls der Workflow beim ersten
+  # Tag-Push aus einem anderen Grund fehlschlägt — sonst müsste man den Tag lokal+remote löschen
+  # und neu pushen.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Bereits existierender Tag, für den das Release (nach)gebaut werden soll (z.B. v2.45.0)"
+        required: true
+
+permissions:
+  contents: write # nötig, damit gh release create mit dem automatischen GITHUB_TOKEN funktioniert
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - name: .NET 8 SDK einrichten
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Linux-Binary bauen
+        run: |
+          VERSION=$(grep -oP '(?<=<Version>)[^<]+' Linux/ULM.Linux.csproj)
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          dotnet publish Linux/ULM.Linux.csproj -c Release -r linux-x64 --self-contained true
+
+          PUBLISH_DIR="Linux/bin/Release/net8.0/linux-x64/publish"
+          mkdir -p release
+          RELEASE_NAME="ulm-linux-v${VERSION}-x64"
+          cp "${PUBLISH_DIR}/ulm-linux" "release/${RELEASE_NAME}"
+          chmod +x "release/${RELEASE_NAME}"
+          (cd release && sha256sum "${RELEASE_NAME}" > SHA256SUMS)
+
+      - name: GitHub Release erstellen und Asset anhängen
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
+          gh release create "$TAG" release/* \
+            --title "Universal Linux Manager (Linux-GUI) $TAG" \
+            --generate-notes
