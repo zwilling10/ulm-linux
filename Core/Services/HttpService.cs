@@ -559,8 +559,25 @@ namespace ULM.Core.Services
             if (!HasDedicatedResolver(entry)) entry.FailedResolveStreak++;
         }
 
+        /// <summary>
+        /// Wird true, wenn der letzte ResolveLatestAsync-Aufruf auf DuckDuckGos Bot-/Anomalie-
+        /// Erkennung ("Unfortunately, bots use DuckDuckGo too." — ein Bild-Captcha statt echter
+        /// Suchergebnisse, HTTP 202) gestoßen ist. Live beobachtet: mehrere Websuchen kurz
+        /// hintereinander (z.B. mehrere unbekannte ISOs beim Stick-Import) lösen diese Sperre für
+        /// die gesamte Restlaufzeit der Sperre aus — JEDE weitere Suche liefert dann "keine
+        /// Ergebnisse", obwohl die gesuchte Distro sehr wohl auffindbar wäre. Ohne dieses Signal ist
+        /// dieser Fall von einem echten "nichts gefunden" nicht unterscheidbar. Bewusst ein
+        /// einfaches Instanzfeld (kein Lock) — dient nur als UI-Hinweis, keine sicherheitskritische
+        /// Zustandsgröße; bei echt parallelen Resolve-Läufen kann der Wert kurzzeitig einem anderen
+        /// Aufruf gehören, was für einen reinen Hinweistext hinnehmbar ist.
+        /// </summary>
+        public bool LastResolveWasSearchEngineBlocked { get; private set; }
+
+        private const string DuckDuckGoBlockMarker = "bots use DuckDuckGo too";
+
         public async Task<(string Version, string Url, string Filename)> ResolveLatestAsync(IsoEntry entry)
         {
+            LastResolveWasSearchEngineBlocked = false;
             if (entry is null) return Empty;
             string rawFl = entry.Filename.ToLowerInvariant();
             string nl = NormalizeForMatch(entry.Name);
@@ -695,9 +712,18 @@ namespace ULM.Core.Services
             if (string.IsNullOrWhiteSpace(entry.Name)) return Empty;
             try
             {
-                string query = Uri.EscapeDataString($"{FirstKeyword(entry.Name)} site:distrowatch.com");
+                // BUGFIX: Der "site:distrowatch.com"-Suchoperator liefert über DuckDuckGos HTML-Lite-
+                // Endpunkt sehr unzuverlässig 0 Treffer (live beobachtet: eine Distro, die über eine
+                // ungefilterte Suche klar auf distrowatch.com gefunden wurde, ergab mit demselben
+                // Schlüsselwort PLUS "site:"-Filter plötzlich GAR NICHTS). Der Filter ist ohnehin
+                // redundant — die Ergebnisse werden unten per .Where(u => u.Contains("distrowatch.com"))
+                // bereits nachträglich eingeschränkt. Nur noch "distrowatch" als zusätzliches
+                // Schlüsselwort mitsuchen statt des Suchoperators.
+                string query = Uri.EscapeDataString($"{FirstKeyword(entry.Name)} distrowatch");
                 string? searchHtml = await GetStringAsync($"https://html.duckduckgo.com/html/?q={query}", 15).ConfigureAwait(false);
                 if (searchHtml is null) return Empty;
+                if (searchHtml.Contains(DuckDuckGoBlockMarker, StringComparison.OrdinalIgnoreCase))
+                { LastResolveWasSearchEngineBlocked = true; return Empty; }
 
                 var dwCandidates = Regex.Matches(searchHtml, @"class=""result__a""[^>]*href=""([^""]+)""", RegexOptions.IgnoreCase)
                     .Cast<Match>().Select(m => ResolveDuckDuckGoRedirect(m.Groups[1].Value))
@@ -947,9 +973,22 @@ namespace ULM.Core.Services
             if (string.IsNullOrWhiteSpace(entry.Name)) return Empty;
             try
             {
-                string query = Uri.EscapeDataString($"{entry.Name} iso download");
+                // BUGFIX: Der VOLLE entry.Name ist bei importierten/manuell hinzugefügten Einträgen
+                // oft ein aus dem Dateinamen abgeleiteter, sehr spezifischer Text (z.B. "LajtLinux kwm
+                // river testing 20260905 amd64" oder "Bliss Surface v16.9.7 x86 64 OFFICIAL gapps
+                // 20241012") — mit Build-Variante, Datum und Architektur als zusätzliche Suchbegriffe
+                // ergab die Suche live beobachtet 0 Treffer, obwohl dieselbe Suchmaschine mit nur dem
+                // ersten Schlüsselwort ("LajtLinux iso download") sofort die richtige Quelle fand
+                // (SourceForge-Projektseite). Dieselbe Schlüsselwort-Extraktion wie in
+                // ResolveViaDistroWatchAsync verwenden statt des vollen Namens — die nachgelagerte
+                // Namens-/Versions-Plausibilitätsprüfung (FindBestIsoMatch/IsVersionNewer weiter unten)
+                // sortiert unpassende Treffer ohnehin aus, ein breiterer Suchbegriff kostet also nur
+                // Präzision bei der Trefferauswahl, nicht bei der Sicherheit.
+                string query = Uri.EscapeDataString($"{FirstKeyword(entry.Name)} iso download");
                 string? html = await GetStringAsync($"https://html.duckduckgo.com/html/?q={query}", 15).ConfigureAwait(false);
                 if (html is null) return Empty;
+                if (html.Contains(DuckDuckGoBlockMarker, StringComparison.OrdinalIgnoreCase))
+                { LastResolveWasSearchEngineBlocked = true; return Empty; }
 
                 var resultPages = Regex.Matches(html, @"class=""result__a""[^>]*href=""([^""]+)""", RegexOptions.IgnoreCase)
                     .Cast<Match>().Select(m => ResolveDuckDuckGoRedirect(m.Groups[1].Value))

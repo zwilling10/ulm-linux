@@ -15,7 +15,7 @@
          "1.0.0" statt der echten Version. MUSS manuell im Gleichschritt mit UniversalLinuxManager.
          csproj's Version-Tag gepflegt werden (kein Directory.Build.props in diesem Projekt, das
          beide Male zentral haette), beim naechsten Versions-Bump hier mit nachziehen. -->
-    <Version>2.40.0</Version>
+    <Version>2.41.0</Version>
 
     <!-- Self-contained Single-File fuer linux-x64, analog zum bestehenden win-x64-Publish in
          UniversalLinuxManager.csproj. Siehe docs/superpowers/specs/2026-07-28-linux-gui-design.md. -->

@@ -36,6 +36,7 @@ namespace ULM.Linux.Views
                 _vm.NewerVersionsOnStickDetected -= OnNewerVersionsOnStickDetected;
                 _vm.UnknownIsosOnStickDetected -= OnUnknownIsosOnStickDetected;
                 _vm.StaleDuplicatesOnStickDetected -= OnStaleDuplicatesOnStickDetected;
+                _vm.UpdatesAvailableForDownload -= OnUpdatesAvailableForDownload;
             }
             _vm = DataContext as LinuxMainViewModel;
             if (_vm is not null)
@@ -44,6 +45,7 @@ namespace ULM.Linux.Views
                 _vm.NewerVersionsOnStickDetected += OnNewerVersionsOnStickDetected;
                 _vm.UnknownIsosOnStickDetected += OnUnknownIsosOnStickDetected;
                 _vm.StaleDuplicatesOnStickDetected += OnStaleDuplicatesOnStickDetected;
+                _vm.UpdatesAvailableForDownload += OnUpdatesAvailableForDownload;
                 // Windows-Pendant: MainWindow.xaml.cs' `_vm.AutoVersionCheckCompleted += async () =>
                 // { ... await RunLocalFileMaintenanceAsync(); }` — läuft genau einmal pro Sitzung,
                 // direkt nach dem ersten abgeschlossenen Online-Versionscheck ("Datenmüll-Schutz",
@@ -126,28 +128,56 @@ namespace ULM.Linux.Views
         /// findet den physischen Pfad direkt über den bereits vom Scan bekannten alten Dateinamen
         /// statt Windows' zusätzlicher FindOldDuplicatePath-Rekursion (der Linux-Scan liefert die
         /// vollen Pfade bereits über UsbService.StickIso.FullPath).</summary>
-        private async void OnStaleDuplicatesOnStickDetected(List<(IsoEntry Entry, string OldFilename)> duplicates, string mountPoint)
+        private async Task OnStaleDuplicatesOnStickDetected(List<(IsoEntry Entry, string OldFilename)> duplicates, string mountPoint)
         {
             if (_vm is null || duplicates.Count == 0) return;
             var files = new List<(string Path, long Size)>();
-            foreach (var (_, oldFilename) in duplicates)
+            var entryByPath = new Dictionary<string, IsoEntry>(System.StringComparer.OrdinalIgnoreCase);
+            foreach (var (entry, oldFilename) in duplicates)
             {
                 var stickIso = _vm.LastStickListing.FirstOrDefault(s => string.Equals(s.Filename, oldFilename, System.StringComparison.OrdinalIgnoreCase));
-                if (stickIso is not null) files.Add((stickIso.FullPath, stickIso.Size));
+                if (stickIso is null) continue;
+                files.Add((stickIso.FullPath, stickIso.Size));
+                entryByPath[stickIso.FullPath] = entry;
             }
             if (files.Count == 0) return;
 
             var dlg = new OrphanedDownloadsDialog(files, LocalizationService.T(Str.Msg_OutdatedDuplicates_Title), LocalizationService.T(Str.Msg_OutdatedDuplicates_Description));
             if (!await dlg.ShowDialog<bool>(this)) return;
             int deleted = 0;
+            var outdatedEntries = new List<IsoEntry>();
             foreach (string path in dlg.ToDelete)
-                if (IsoEntry.TryDelete(path, line => _vm.LogEntries.Add(line))) deleted++;
+            {
+                if (!IsoEntry.TryDelete(path, line => _vm.LogEntries.Add(line))) continue;
+                deleted++;
+                if (entryByPath.TryGetValue(path, out var entry)) outdatedEntries.Add(entry);
+            }
             _vm.LogEntries.Add(string.Format(LocalizationService.T(Str.Log_StaleDuplicatesDeletedStatus), deleted, mountPoint));
+
+            // Nutzerfund (2026-09-16): veraltete Duplikate auf dem Stick wurden bisher NUR zum
+            // Löschen angeboten — der Anwender müsste die aktuelle Version danach manuell erneut
+            // herunterladen und auf den Stick kopieren. Direkt nach dem Löschen dieselbe Download-
+            // Abfrage wie bei UpdatesAvailableForDownload anbieten (derselbe Stick ist über
+            // _vm.SelectedDrive noch ausgewählt, RunDownloadFlowAsync fragt dort selbst nach
+            // Kopiermodus/Slots).
+            if (outdatedEntries.Count > 0)
+            {
+                string names = string.Join("\n", outdatedEntries.Select(e => "• " + e.Name));
+                bool proceed = await ConfirmDialog.ShowAsync(this,
+                    LocalizationService.T(Str.Msg_UpdatesAvailable_Title),
+                    string.Format(LocalizationService.T(Str.Msg_UpdatesAvailable_Body), outdatedEntries.Count, names));
+                if (proceed)
+                {
+                    foreach (var e in outdatedEntries) e.IsSelected = true;
+                    _vm.RefreshRows();
+                    await RunDownloadFlowAsync();
+                }
+            }
         }
 
         /// <summary>Windows-Pendant: MainWindow.xaml.cs' NewerVersionsOnStickDetected-Handler —
         /// bietet je gefundener neuerer Stick-Version Replace/Add/Skip an.</summary>
-        private async void OnNewerVersionsOnStickDetected(List<(IsoEntry DbEntry, UsbService.StickIso StickIso)> matches, string mountPoint)
+        private async Task OnNewerVersionsOnStickDetected(List<(IsoEntry DbEntry, UsbService.StickIso StickIso)> matches, string mountPoint)
         {
             if (_vm is null || matches.Count == 0) return;
             var dlg = new NewerVersionOnStickDialog(matches);
@@ -165,10 +195,29 @@ namespace ULM.Linux.Views
             if (added > 0) _vm.RunHealthCheckCommand.Execute(null);
         }
 
+        /// <summary>Nutzerwunsch (2026-09-16): findet der Online-/Gesundheitscheck ein Update für
+        /// einen Eintrag, der bereits lokal heruntergeladen ODER auf dem zuletzt gescannten Stick
+        /// vorhanden ist (IsoEntry.IsAvailableAnywhere), soll das nicht nur im Katalog vermerkt
+        /// werden, sondern dem Anwender gleich zum Download angeboten werden — markiert die
+        /// betroffenen Einträge als ausgewählt und stößt exakt denselben Dialog-Ablauf an wie ein
+        /// manueller Klick auf "Download" (Stick-Kopiermodus/Freispeicher/Slots).</summary>
+        private async void OnUpdatesAvailableForDownload(List<IsoEntry> entries)
+        {
+            if (_vm is null || _vm.IsBusy || entries.Count == 0) return;
+            string names = string.Join("\n", entries.Select(e => "• " + e.Name));
+            bool proceed = await ConfirmDialog.ShowAsync(this,
+                LocalizationService.T(Str.Msg_UpdatesAvailable_Title),
+                string.Format(LocalizationService.T(Str.Msg_UpdatesAvailable_Body), entries.Count, names));
+            if (!proceed) return;
+            foreach (var e in entries) e.IsSelected = true;
+            _vm.RefreshRows();
+            await RunDownloadFlowAsync();
+        }
+
         /// <summary>Windows-Pendant: MainWindow.xaml.cs' UnknownIsosOnStickDetected-Handler —
         /// unbekannte ISO-Dateien auf dem Stick zum Importieren anbieten (Name/Kategorie/URL
         /// zuweisen), verschiebt sie danach in den passenden Kategorie-Ordner.</summary>
-        private async void OnUnknownIsosOnStickDetected(List<UsbService.StickIso> unknowns, string mountPoint)
+        private async Task OnUnknownIsosOnStickDetected(List<UsbService.StickIso> unknowns, string mountPoint)
         {
             if (_vm is null || unknowns.Count == 0) return;
             var dlg = new ImportStickIsosDialog(unknowns);
@@ -386,7 +435,12 @@ namespace ULM.Linux.Views
         /// NumericUpDown-Lösung. Klärt Kopiermodus/Freispeicher/parallele Slots per Dialogkette
         /// (braucht dieses Fenster als Owner, daher Code-behind statt VM-Command — wie unter
         /// Windows) und ruft danach DownloadQueueAsync mit dem geklärten Auftrag auf.</summary>
-        private async void BtnDownload_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+        private async void BtnDownload_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => await RunDownloadFlowAsync();
+
+        /// <summary>Eigentlicher Ablauf von BtnDownload_Click, als awaitbare Task ausgelagert —
+        /// Nutzerwunsch (2026-09-16): auch von OnUpdatesAvailableForDownload aufrufbar (ein
+        /// XAML-Click-Handler kann nicht direkt awaited werden, "async void" ist fire-and-forget).</summary>
+        private async Task RunDownloadFlowAsync()
         {
             if (_vm is null || _vm.IsBusy) return;
             List<IsoEntry> queue = _vm.GetSelectedEntries();

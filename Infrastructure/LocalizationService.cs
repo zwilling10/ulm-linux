@@ -214,6 +214,8 @@ namespace ULM.Infrastructure
             [Str.Msg_PhaseCopyToStick]           = "Kopiere auf Stick",
             [Str.Msg_SelectDriveFirst]           = "Bitte zuerst ein USB-Laufwerk auswählen!",
             [Str.Msg_PleaseWait]                 = "Bitte warten …",
+            [Str.Msg_UpdatesAvailable_Title]     = "Updates verfügbar",
+            [Str.Msg_UpdatesAvailable_Body]      = "Für {0} bereits vorhandene(s) ISO(s) wurde eine neuere Version gefunden:\n\n{1}\n\nJetzt herunterladen?",
             [Str.Msg_NoLocalIsos]                = "Keine lokal heruntergeladenen ISOs vorhanden.",
             [Str.Msg_NewDriveDetected_Body]      =
                 "Neuer USB-Stick: {0}\nLabel: {1}   Größe: {2:F0} GB\n\n" +
@@ -886,6 +888,11 @@ namespace ULM.Infrastructure
             [Str.Db_RequiredFields_Title] = "Eingabe unvollständig",
             [Str.Db_NameTaken_Body]  = "Der Name \"{0}\" wird bereits von einem anderen Eintrag verwendet.\n\nBitte einen eindeutigen Namen vergeben — gleiche Namen können beim Download (z.B. dem \"(schneller)\"-Button) zu Verwechslungen zwischen den Einträgen führen.",
             [Str.Db_NameTaken_Title] = "Name bereits vergeben",
+            [Str.Db_Btn_OnlineSearch]        = "🔍 Online suchen",
+            [Str.Db_OnlineSearch_Running]    = "Suche läuft…",
+            [Str.Db_OnlineSearch_NotFound]   = "Keine Quelle gefunden.",
+            [Str.Db_OnlineSearch_Found]      = "Gefunden: Version {0}",
+            [Str.Db_OnlineSearch_Blocked]    = "Suche vorübergehend blockiert (Bot-Schutz der Suchmaschine) — bitte in einigen Minuten erneut versuchen.",
 
             [Str.Db_SearchDialog_Title]     = "ISO suchen",
             [Str.Db_Tab_Latest]             = "🆕 Aktuellste",
@@ -1287,6 +1294,8 @@ namespace ULM.Infrastructure
             [Str.Msg_PhaseCopyToStick]           = "Copying to Stick",
             [Str.Msg_SelectDriveFirst]           = "Please select a USB drive first!",
             [Str.Msg_PleaseWait]                 = "Please wait …",
+            [Str.Msg_UpdatesAvailable_Title]     = "Updates available",
+            [Str.Msg_UpdatesAvailable_Body]      = "A newer version was found for {0} ISO(s) you already have:\n\n{1}\n\nDownload now?",
             [Str.Msg_NoLocalIsos]                = "No locally downloaded ISOs available.",
             [Str.Msg_NewDriveDetected_Body]      =
                 "New USB stick: {0}\nLabel: {1}   Size: {2:F0} GB\n\n" +
@@ -1959,6 +1968,11 @@ namespace ULM.Infrastructure
             [Str.Db_RequiredFields_Title] = "Incomplete entry",
             [Str.Db_NameTaken_Body]  = "The name \"{0}\" is already used by another entry.\n\nPlease choose a unique name — duplicate names can cause mix-ups between entries during download (e.g. the \"(faster)\" button).",
             [Str.Db_NameTaken_Title] = "Name already in use",
+            [Str.Db_Btn_OnlineSearch]        = "🔍 Search online",
+            [Str.Db_OnlineSearch_Running]    = "Searching…",
+            [Str.Db_OnlineSearch_NotFound]   = "No source found.",
+            [Str.Db_OnlineSearch_Found]      = "Found: version {0}",
+            [Str.Db_OnlineSearch_Blocked]    = "Search temporarily blocked (search engine bot protection) — please try again in a few minutes.",
 
             [Str.Db_SearchDialog_Title]     = "Search ISO",
             [Str.Db_Tab_Latest]             = "🆕 Latest",

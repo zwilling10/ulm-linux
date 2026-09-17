@@ -252,7 +252,7 @@ namespace ULM.Core.Services
         private async Task<(string, string, string)> ResolveDrWebAsync()
         {
             foreach(string vc in new[]{"902","901","900"})foreach(string b in new[]{"https://download.geo.drweb.com/pub/drweb/livedisk/","https://ftp.drweb.com/pub/drweb/livedisk/"})
-            {string fname=$"drweb-livedisk-{vc}-cd.iso";string url=b+fname;if(!await IsReachableAsync(url,8).ConfigureAwait(false))continue;return(string.Join(".",vc.Select(c=>c.ToString())),url,fname);}
+            {string fname=$"drweb-livedisk-{vc}-cd.iso";string url=b+fname;if(!await IsReachableAsync(url,8).ConfigureAwait(false))continue;return(vc,url,fname);}
             return Empty;
         }
 

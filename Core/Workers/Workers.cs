@@ -360,7 +360,15 @@ namespace ULM.Core.Workers
                             await HttpService.Instance.IsReachableAsync(entry.RemoteUrl, 8).ConfigureAwait(false))
                         { ver = entry.RemoteVersion; resolvedUrl = entry.RemoteUrl; fname = entry.RemoteFilename; }
                         else
-                        { (ver, resolvedUrl, fname) = await HttpService.Instance.ResolveLatestAsync(entry).ConfigureAwait(false); }
+                        {
+                            (ver, resolvedUrl, fname) = await HttpService.Instance.ResolveLatestAsync(entry).ConfigureAwait(false);
+                            // BUGFIX (Nutzerfund: Update-Suche zeigt neueste Version, Download laedt
+                            // aeltere -- CachyOS): dieser Zweig aktualisierte bisher NUR Filename/
+                            // RemoteVersion, nie entry.RemoteUrl. Ein danach veraltetes/leeres
+                            // RemoteUrl floss unten ueber AllDownloadUrls() als zusaetzlicher
+                            // "Mirror"-Kandidat ins Geschwindigkeits-Rennen -- siehe Kommentar dort.
+                            if (!string.IsNullOrWhiteSpace(resolvedUrl)) entry.RemoteUrl = resolvedUrl;
+                        }
 
                         if (string.IsNullOrWhiteSpace(resolvedUrl))
                         {
@@ -394,9 +402,27 @@ namespace ULM.Core.Workers
                         // Regelfall (eine SourceForge-Quelle + bis zu 5 echte Mirror-Felder) ab, ohne
                         // echte Fallback-Quellen zu verschlucken.
                         string destPath = Path.Combine(_downloadDir, fname);
-                        var urlsToTry = entry.AllDownloadUrls(resolvedUrl)
+                        var allCandidates = entry.AllDownloadUrls(resolvedUrl)
                             .Distinct(StringComparer.OrdinalIgnoreCase)
                             .Take(10).ToList();
+
+                        // BUGFIX (Nutzerfund: Update-Suche zeigt neueste Version, Download laedt
+                        // aeltere -- reproduziert mit CachyOS): AllDownloadUrls() liefert neben der
+                        // frisch aufgeloesten resolvedUrl auch die persistierten RemoteUrl/Url/
+                        // Mirror1-5-Felder. Bei Distros mit versionierten Pfaden (Datum/Build in der
+                        // URL) bleiben AELTERE Versionen auf dem Server oft einzeln weiter erreichbar
+                        // (live geprueft: alte cachyos.org-ISO-Pfade antworten Monate spaeter immer
+                        // noch mit 200). Das Geschwindigkeits-Rennen unten kennt keine Versionen und
+                        // waehlt blind die schnellste Antwort -- eine schnellere ALTE Datei gewinnt
+                        // dann gegen die korrekte neue. Nur Kandidaten OHNE abweichende erkennbare
+                        // Version duerfen ins Rennen; alles mit einer anderen Version wird nur als
+                        // letzter Ausweg ganz hinten angehaengt (sequenziell versucht, nie geraced).
+                        bool sameVersion(string u) {
+                            string uv = HttpService.ExtractVersion(Path.GetFileName(new Uri(u).AbsolutePath));
+                            return string.IsNullOrEmpty(uv) || string.IsNullOrEmpty(ver) || uv == ver;
+                        }
+                        var urlsToTry      = allCandidates.Where(sameVersion).ToList();
+                        var staleFallbacks = allCandidates.Where(u => !sameVersion(u)).ToList();
 
                         // ── Mirror-Race: bevor der eigentliche Download beginnt, alle Kandidaten
                         // parallel für ~3s antesten und den schnellsten zuerst versuchen (siehe
@@ -411,6 +437,7 @@ namespace ULM.Core.Workers
                                 $"{TryGetSourceLabel(r.Url)} {(r.Bps > 0 ? $"{r.Bps * 8 / 1_000_000:F1} Mbit/s" : LocalizationService.T(Str.Log_Unreachable))}"));
                             LogMessage?.Invoke(string.Format(LocalizationService.T(Str.Log_MirrorTest), entry.Name, mirrorList));
                         }
+                        urlsToTry.AddRange(staleFallbacks);
 
                         string usedUrl = resolvedUrl;
                         int mirrorIdx  = 0;

@@ -163,6 +163,8 @@ namespace ULM.Infrastructure
         Msg_PhaseCopyToStick,
         Msg_SelectDriveFirst,
         Msg_PleaseWait,
+        Msg_UpdatesAvailable_Title,
+        Msg_UpdatesAvailable_Body,
         Msg_NoLocalIsos,
         Msg_NewDriveDetected_Body,
         Msg_NewDriveDetected_Title,
@@ -435,6 +437,8 @@ namespace ULM.Infrastructure
         Db_Field_PrimaryUrl, Db_Field_Filename, Db_Field_Mirror1, Db_Field_Mirror2, Db_Field_Mirror3,
         Db_Field_GithubRepo, Db_Field_GithubAsset, Db_Field_Description, Db_Btn_Save, Db_Btn_Cancel,
         Db_RequiredFields_Body, Db_RequiredFields_Title, Db_NameTaken_Body, Db_NameTaken_Title,
+        Db_Btn_OnlineSearch, Db_OnlineSearch_Running, Db_OnlineSearch_NotFound, Db_OnlineSearch_Found,
+        Db_OnlineSearch_Blocked,
 
         Db_SearchDialog_Title, Db_Tab_Latest, Db_Tab_Popular, Db_Chk_DownloadImmediately,
         Db_Btn_CloseSimple, Db_Btn_Refresh, Db_Btn_TakeOver, Db_Loading, Db_NoDiscoveryResults,

@@ -225,7 +225,7 @@ namespace ULM.Core.Services
         private static readonly string[][] DefaultDatabase =
         {
             // ── Antivirus ─────────────────────────────────────────────────
-            ["Dr.Web LiveDisk 9.0.1", "Antivirus",
+            ["Dr.Web LiveDisk 9.0.0", "Antivirus",
              "", "drweb-livedisk-900-cd.iso", "", "", "", "", "", "", "",
              "🛡 Dr.Web LiveDisk — Antivirus Live-System\n" +
              "✅ Bootet OHNE Installation (Debian-basiert)\n" +
