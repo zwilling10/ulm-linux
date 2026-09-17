@@ -244,8 +244,6 @@ namespace ULM.Linux.ViewModels
 
         // ── Automatische USB-Stick-Erkennung (Windows-Pendant: MainViewModel.UsbScanActive) —
         // läuft, sobald PollDrivesAsync einen Ventoy-Stick neu auswählt (siehe ScanConnectedStickAsync).
-        // Kein Prozentwert (Windows nutzt hier ebenfalls eine unbestimmte ProgressBar), daher kein
-        // eigenes *Percent-Feld. ──
         private bool _usbScanActive;
         public bool UsbScanActive
         {
@@ -253,15 +251,29 @@ namespace ULM.Linux.ViewModels
             private set { if (SetField(ref _usbScanActive, value)) { OnPropertyChanged(nameof(ScanInProgress)); OnPropertyChanged(nameof(ScanHintText)); OnPropertyChanged(nameof(ScanHintFullText)); } }
         }
 
+        // Nutzerwunsch (2026-09-17): eigenständiges, nicht-blockierendes "Bitte Geduld"-Popup
+        // während des Stick-Scans (analog zum blockierenden Start-Popup, siehe StartupCheckDialog)
+        // — dafür jetzt eine echte Prozentangabe statt nur einer unbestimmten Anzeige. Fortschritt
+        // kommt aus UsbService.ScanStickVerifiedAsync's onProgress-Callback (ein Tick pro online
+        // geprüfter Datei auf dem Stick).
+        private int _usbScanPercent;
+        public int UsbScanPercent
+        {
+            get => _usbScanPercent;
+            private set { if (SetField(ref _usbScanPercent, value)) OnPropertyChanged(nameof(ScanHintFullText)); }
+        }
+
         public bool ScanInProgress => OnlineScanActive || UsbScanActive;
         public string ScanHintText => OnlineScanActive ? LocalizationService.T(Str.Main_ScanHint_Online)
                                      : UsbScanActive     ? LocalizationService.T(Str.Main_ScanHint_Usb)
                                      : string.Empty;
 
-        /// <summary>Fertig formatierter Kopfzeilen-Hinweis inkl. Prozentangabe NUR während des
-        /// Online-Scans (der Stick-Scan hat keinen Fortschrittswert, daher dort kein "(NN%)"-Anhang,
-        /// der sonst einen veralteten Online-Scan-Prozentwert fälschlich mit anzeigen würde).</summary>
-        public string ScanHintFullText => OnlineScanActive ? $"{ScanHintText} ({OnlineScanPercent}%)" : ScanHintText;
+        /// <summary>Fertig formatierter Kopfzeilen-Hinweis inkl. Prozentangabe — seit Einführung von
+        /// UsbScanPercent (2026-09-17) auch für den Stick-Scan verfügbar, nicht mehr nur für den
+        /// Online-Scan.</summary>
+        public string ScanHintFullText => OnlineScanActive ? $"{ScanHintText} ({OnlineScanPercent}%)"
+                                         : UsbScanActive     ? $"{ScanHintText} ({UsbScanPercent}%)"
+                                         : ScanHintText;
 
         // ── URL-Check als zweite Phase des Start-Checks (Nutzerwunsch 2026-09-16: "URLs prüfen"
         // soll im selben Bitte-warten-Fenster mit eigenem Fortschritt durchlaufen, nicht nur der
@@ -1397,9 +1409,12 @@ namespace ULM.Linux.ViewModels
         private async Task ScanConnectedStickAsync(string mountPoint)
         {
             UsbScanActive = true;
+            UsbScanPercent = 0;
             try
             {
-                var (found, incomplete) = await UsbService.Instance.ScanStickVerifiedAsync(mountPoint, _db.Entries).ConfigureAwait(true);
+                var (found, incomplete) = await UsbService.Instance.ScanStickVerifiedAsync(mountPoint, _db.Entries,
+                    (done, total) => Avalonia.Threading.Dispatcher.UIThread.Post(() => UsbScanPercent = total > 0 ? done * 100 / total : 100))
+                    .ConfigureAwait(true);
                 _lastStickListing = found;
                 ApplyStickResults(found);
                 await ClassifyStickFindings(found, mountPoint).ConfigureAwait(true);

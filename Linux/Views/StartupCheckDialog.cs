@@ -21,9 +21,20 @@ namespace ULM.Linux.Views
         private readonly RotateTransform _spinnerRotation = new(0);
         private readonly DispatcherTimer _timer;
 
+        /// <summary>Standard-Aufruf: blockierender Start-Versionscheck (App.axaml.cs).</summary>
         public StartupCheckDialog(LinuxMainViewModel vm)
+            : this(vm, LocalizationService.T(Str.Msg_PleaseWait),
+                   nameof(LinuxMainViewModel.StartupHintText), nameof(LinuxMainViewModel.StartupHintPercent))
         {
-            Title = LocalizationService.T(Str.Msg_PleaseWait);
+        }
+
+        /// <summary>Nutzerwunsch (2026-09-17): dasselbe Fenster (gleiche Optik/Spinner) auch
+        /// nicht-blockierend für den Stick-Scan wiederverwenden, mit eigenem Text ("Bitte Geduld")
+        /// und eigenen gebundenen Fortschritts-Properties (UsbScanHintFullText-Äquivalent), statt
+        /// eine zweite, fast identische Dialogklasse zu bauen.</summary>
+        public StartupCheckDialog(LinuxMainViewModel vm, string headerText, string statusPropertyName, string percentPropertyName)
+        {
+            Title = headerText;
             Width = 460;
             SizeToContent = SizeToContent.Height;
             CanResize = false;
@@ -50,17 +61,17 @@ namespace ULM.Linux.Views
             var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Spacing = 10 };
             text.Children.Add(new TextBlock
             {
-                Text = LocalizationService.T(Str.Msg_PleaseWait),
+                Text = headerText,
                 FontSize = 15,
                 FontWeight = FontWeight.Bold,
             });
 
             var status = new TextBlock { TextWrapping = TextWrapping.Wrap };
-            status.Bind(TextBlock.TextProperty, new Binding(nameof(LinuxMainViewModel.StartupHintText)) { Source = vm });
+            status.Bind(TextBlock.TextProperty, new Binding(statusPropertyName) { Source = vm });
             text.Children.Add(status);
 
             var bar = new ProgressBar { Minimum = 0, Maximum = 100, Height = 18 };
-            bar.Bind(ProgressBar.ValueProperty, new Binding(nameof(LinuxMainViewModel.StartupHintPercent)) { Source = vm });
+            bar.Bind(ProgressBar.ValueProperty, new Binding(percentPropertyName) { Source = vm });
             text.Children.Add(bar);
 
             var root = new Grid { Margin = new Thickness(24), ColumnDefinitions = new ColumnDefinitions("56,*") };

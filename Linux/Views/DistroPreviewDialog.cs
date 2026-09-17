@@ -28,6 +28,7 @@ namespace ULM.Linux.Views
         private readonly string _slug;
         private readonly IReadOnlyList<string> _tags;
         private readonly StackPanel _contentPanel;
+        private Image? _screenshotImage;
 
         public DistroPreviewDialog(string name, string slug, IReadOnlyList<string> tags)
         {
@@ -81,6 +82,17 @@ namespace ULM.Linux.Views
 
             Opened += (_, _) => PositionNextToOwner();
             Opened += async (_, _) => await LoadAsync();
+
+            // Nutzerwunsch (2026-09-17): Fenster ist seit Kurzem frei skalierbar — das Vorschaubild
+            // soll beim Größerziehen mitwachsen, damit man es sich im Detail ansehen kann, statt
+            // bei fester Höhe (130px) zu verharren.
+            SizeChanged += (_, _) => UpdateScreenshotMaxHeight();
+        }
+
+        private void UpdateScreenshotMaxHeight()
+        {
+            if (_screenshotImage is null) return;
+            _screenshotImage.MaxHeight = Math.Max(130, Bounds.Height * 0.45);
         }
 
         private void PositionNextToOwner()
@@ -133,13 +145,14 @@ namespace ULM.Linux.Views
                 Bitmap? bitmap = bytes is null ? null : LoadImage(bytes);
                 if (bitmap is not null)
                 {
-                    _contentPanel.Children.Add(new Image
+                    _screenshotImage = new Image
                     {
                         Source = bitmap,
-                        MaxHeight = 130,
                         Stretch = Stretch.Uniform,
                         Margin = new Thickness(0, 0, 0, 12),
-                    });
+                    };
+                    UpdateScreenshotMaxHeight();
+                    _contentPanel.Children.Add(_screenshotImage);
                 }
             }
 

@@ -50,6 +50,31 @@ namespace ULM.Linux
                 mainWindow.Opened += (_, _) =>
                 {
                     var startupDialog = new StartupCheckDialog(viewModel);
+
+                    // Nutzerwunsch (2026-09-17): eigenes, NICHT-blockierendes "Bitte Geduld"-Popup
+                    // während jedes Stick-Scans (egal ob der Stick schon beim Start steckte oder
+                    // erst während der laufenden Sitzung eingesteckt wird — beide Fälle laufen über
+                    // denselben UsbScanActive-Zustand in PollDrivesAsync/ScanConnectedStickAsync).
+                    // Bewusst dieselbe Dialogklasse wie oben (nur anderer Text/andere Bindings) statt
+                    // einer zweiten, fast identischen Fensterklasse. Show() statt ShowDialog(), damit
+                    // die App währenddessen bedienbar bleibt.
+                    StartupCheckDialog? stickScanDialog = null;
+                    viewModel.PropertyChanged += (_, e) =>
+                    {
+                        if (e.PropertyName != nameof(viewModel.UsbScanActive)) return;
+                        if (viewModel.UsbScanActive)
+                        {
+                            stickScanDialog = new StartupCheckDialog(viewModel, LocalizationService.T(Str.Msg_PleaseBePatient),
+                                nameof(viewModel.ScanHintText), nameof(viewModel.UsbScanPercent));
+                            stickScanDialog.Show(mainWindow);
+                        }
+                        else
+                        {
+                            stickScanDialog?.Close();
+                            stickScanDialog = null;
+                        }
+                    };
+
                     async void OnCompleted()
                     {
                         viewModel.StartupChecksCompleted -= OnCompleted;

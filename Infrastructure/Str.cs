@@ -162,7 +162,7 @@ namespace ULM.Infrastructure
         Msg_FreeSpace_Title,
         Msg_PhaseCopyToStick,
         Msg_SelectDriveFirst,
-        Msg_PleaseWait,
+        Msg_PleaseWait, Msg_PleaseBePatient,
         Msg_UpdatesAvailable_Title,
         Msg_UpdatesAvailable_Body,
         Msg_NoLocalIsos,

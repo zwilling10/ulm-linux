@@ -1,4 +1,5 @@
 // ULM.Tests/TestDoubles.cs
+using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using ULM.Core.Models;
@@ -25,7 +26,7 @@ internal sealed class FakeUsbService : IUsbService
         PrepareCalls.Add((diskIndex, letter));
         return PrepareShouldSucceed;
     }
-    public Task<(List<UsbService.StickIso> Found, List<UsbService.StickIso> Incomplete)> ScanStickVerifiedAsync(string letter, IReadOnlyList<IsoEntry> entries)
+    public Task<(List<UsbService.StickIso> Found, List<UsbService.StickIso> Incomplete)> ScanStickVerifiedAsync(string letter, IReadOnlyList<IsoEntry> entries, Action<int, int>? onProgress = null)
         => Task.FromResult((new List<UsbService.StickIso>(), new List<UsbService.StickIso>()));
 }
 
