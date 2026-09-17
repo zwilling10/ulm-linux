@@ -73,6 +73,7 @@
     <Compile Include="..\Core\Models\UsbDrive.cs" Link="Core\Models\UsbDrive.cs" />
     <Compile Include="..\Core\Models\RawUsbDiskCandidate.cs" Link="Core\Models\RawUsbDiskCandidate.cs" />
     <Compile Include="..\Core\Models\DiscoveredDistro.cs" Link="Core\Models\DiscoveredDistro.cs" />
+    <Compile Include="..\Core\Models\DistroPreview.cs" Link="Core\Models\DistroPreview.cs" />
     <Compile Include="..\Core\Services\HttpService.cs" Link="Core\Services\HttpService.cs" />
     <Compile Include="..\Core\Services\HttpService.DistroResolvers.cs" Link="Core\Services\HttpService.DistroResolvers.cs" />
     <Compile Include="..\Core\Services\IsoDatabaseService.cs" Link="Core\Services\IsoDatabaseService.cs" />
@@ -85,6 +86,7 @@
     <!-- Ebenfalls plattformneutral (siehe Phase-B-4-Plan) — DistroWatch-"Aktuellste"/
          "Beliebteste"-Abfragen für die ISO-Suche. -->
     <Compile Include="..\Core\Services\DiscoveryService.cs" Link="Core\Services\DiscoveryService.cs" />
+    <Compile Include="..\Core\Services\DistroPreviewService.cs" Link="Core\Services\DistroPreviewService.cs" />
     <Compile Include="..\Infrastructure\AppLanguage.cs" Link="Infrastructure\AppLanguage.cs" />
     <Compile Include="..\Infrastructure\Str.cs" Link="Infrastructure\Str.cs" />
     <Compile Include="..\Infrastructure\LocalizationService.cs" Link="Infrastructure\LocalizationService.cs" />

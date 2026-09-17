@@ -1,7 +1,10 @@
+using System;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Data;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Threading;
 using ULM.Infrastructure;
 using ULM.Linux.ViewModels;
 
@@ -15,10 +18,13 @@ namespace ULM.Linux.Views
     /// Schließt sich automatisch über AutoVersionCheckCompleted (siehe App.axaml.cs).</summary>
     public sealed class StartupCheckDialog : Window
     {
+        private readonly RotateTransform _spinnerRotation = new(0);
+        private readonly DispatcherTimer _timer;
+
         public StartupCheckDialog(LinuxMainViewModel vm)
         {
             Title = LocalizationService.T(Str.Msg_PleaseWait);
-            Width = 420;
+            Width = 460;
             SizeToContent = SizeToContent.Height;
             CanResize = false;
             ShowInTaskbar = false;
@@ -27,25 +33,46 @@ namespace ULM.Linux.Views
             // zu tun außer zu warten; ein Klick auf X würde nur dieses Fenster schließen, die
             // App bliebe dahinter normal nutzbar (kein Datenverlust-Risiko).
 
-            var root = new StackPanel { Margin = new Avalonia.Thickness(24), Spacing = 14 };
+            var spinner = new TextBlock
+            {
+                Text = "⟳",
+                FontSize = 32,
+                FontWeight = FontWeight.Bold,
+                Foreground = Brushes.DeepSkyBlue,
+                RenderTransform = _spinnerRotation,
+                RenderTransformOrigin = RelativePoint.Center,
+                Width = 48,
+                Height = 48,
+                TextAlignment = TextAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
 
-            root.Children.Add(new TextBlock
+            var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Spacing = 10 };
+            text.Children.Add(new TextBlock
             {
                 Text = LocalizationService.T(Str.Msg_PleaseWait),
                 FontSize = 15,
                 FontWeight = FontWeight.Bold,
-                HorizontalAlignment = HorizontalAlignment.Center
             });
 
-            var status = new TextBlock { HorizontalAlignment = HorizontalAlignment.Center, TextWrapping = TextWrapping.Wrap };
+            var status = new TextBlock { TextWrapping = TextWrapping.Wrap };
             status.Bind(TextBlock.TextProperty, new Binding(nameof(LinuxMainViewModel.StartupHintText)) { Source = vm });
-            root.Children.Add(status);
+            text.Children.Add(status);
 
             var bar = new ProgressBar { Minimum = 0, Maximum = 100, Height = 18 };
             bar.Bind(ProgressBar.ValueProperty, new Binding(nameof(LinuxMainViewModel.StartupHintPercent)) { Source = vm });
-            root.Children.Add(bar);
+            text.Children.Add(bar);
 
+            var root = new Grid { Margin = new Thickness(24), ColumnDefinitions = new ColumnDefinitions("56,*") };
+            root.Children.Add(spinner);
+            Grid.SetColumn(text, 1);
+            root.Children.Add(text);
             Content = root;
+
+            _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(35) };
+            _timer.Tick += (_, _) => _spinnerRotation.Angle = (_spinnerRotation.Angle + 12) % 360;
+            Opened += (_, _) => _timer.Start();
+            Closed += (_, _) => _timer.Stop();
         }
     }
 }

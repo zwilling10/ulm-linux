@@ -440,6 +440,12 @@ namespace ULM.Infrastructure
         Db_Btn_OnlineSearch, Db_OnlineSearch_Running, Db_OnlineSearch_NotFound, Db_OnlineSearch_Found,
         Db_OnlineSearch_Blocked,
 
+        Preview_DialogTitle, Preview_OpenTooltip, Preview_LoadError,
+        Preview_Label_BasedOn, Preview_Label_Origin, Preview_Label_Architecture,
+        Preview_Label_Desktop, Preview_Label_Status, Preview_Status_Active,
+        Preview_Status_Inactive, Preview_Label_Popularity, Preview_PopularityValue,
+        Preview_OpenInBrowser,
+
         Db_SearchDialog_Title, Db_Tab_Latest, Db_Tab_Popular, Db_Chk_DownloadImmediately,
         Db_Btn_CloseSimple, Db_Btn_Refresh, Db_Btn_TakeOver, Db_Loading, Db_NoDiscoveryResults,
         Db_FromCache, Db_FreshlyLoaded, Db_DiscoveryStatusSuffix, Db_NameAlreadyInDb,

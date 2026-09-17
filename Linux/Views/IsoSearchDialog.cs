@@ -1,12 +1,9 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
-using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
-using Avalonia.Media.Imaging;
 using ULM.Core.Models;
 using ULM.Core.Services;
 using ULM.Infrastructure;
@@ -26,6 +23,7 @@ namespace ULM.Linux.Views
 
         public List<IsoEntry> AddedEntries { get; } = new();
         public HashSet<IsoEntry> ToDownload { get; } = new();
+        private DistroPreviewDialog? _openPreviewDialog;
 
         private sealed class DiscoveryRow
         {
@@ -165,11 +163,14 @@ namespace ULM.Linux.Views
                         Content = "👁", Classes = { "ghost" }, Width = 28, Height = 28, Padding = new Thickness(0),
                         VerticalAlignment = VerticalAlignment.Center, HorizontalContentAlignment = HorizontalAlignment.Center,
                     };
-                    ToolTip.SetTip(previewBtn, LocalizationService.T(Str.Db_PreviewButtonTooltip));
-                    previewBtn.Click += async (_, _) =>
+                    ToolTip.SetTip(previewBtn, LocalizationService.T(Str.Preview_OpenTooltip));
+                    previewBtn.Click += (_, _) =>
                     {
-                        Bitmap? image = await LoadPreviewImageAsync(d.Slug).ConfigureAwait(true);
-                        await InfoDialog.ShowAsync(this, d.Name, BuildInfoTooltip(d), image);
+                        _openPreviewDialog?.Close();
+                        var dlg = new DistroPreviewDialog(d.Name, d.Slug, d.Tags);
+                        _openPreviewDialog = dlg;
+                        dlg.Closed += (_, _) => { if (_openPreviewDialog == dlg) _openPreviewDialog = null; };
+                        dlg.Show(this);
                     };
                     Grid.SetColumn(previewBtn, 2);
                     row.Children.Add(previewBtn);
@@ -226,24 +227,6 @@ namespace ULM.Linux.Views
 
         private static void ApplyRowHighlight(Grid row, DiscoveredDistro d) =>
             row.Background = d.AlreadyInDb ? BrushAlreadyInDbBg : BrushTransparent;
-
-        /// <summary>Nutzerwunsch (2026-09-08): "mit einem Vorschaubild der Distro, so wie in der
-        /// Windows Version" — kein Windows-Pendant vorhanden (neues Feature). DistroWatch-
-        /// Profilseiten verlinken ihr Haupt-Screenshot-Thumbnail unter einem festen Pfadmuster
-        /// (images/slinks/{slug}-small.png, per echtem Seitenabruf verifiziert) — nicht jede
-        /// Distro hat eins (404 = kein Screenshot hinterlegt, ganz normaler Fall, kein Fehler).
-        /// Gibt null zurück statt zu werfen, wenn Abruf oder Bild-Dekodierung fehlschlägt.</summary>
-        private static async Task<Bitmap?> LoadPreviewImageAsync(string slug)
-        {
-            byte[]? bytes = await HttpService.Instance.GetBytesAsync($"https://distrowatch.com/images/slinks/{slug}-small.png", 10).ConfigureAwait(false);
-            if (bytes is null || bytes.Length == 0) return null;
-            try
-            {
-                using var stream = new MemoryStream(bytes);
-                return new Bitmap(stream);
-            }
-            catch { return null; }
-        }
 
         private static string BuildInfoTooltip(DiscoveredDistro d)
         {
