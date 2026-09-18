@@ -20,6 +20,7 @@ namespace ULM.Linux
         public override void OnFrameworkInitializationCompleted()
         {
             Directory.CreateDirectory(LinuxPaths.ConfigDir);
+            LinuxDesktopIntegrationService.EnsureInstalled();
             // Optionales, per SettingsDialog gesetztes Arbeitsverzeichnis (ISOs/DB/Log/Cache)
             // überschreibt den XDG-Standardpfad — fehlt der Schlüssel (Standardfall), bleibt
             // exakt das bisherige Verhalten (LinuxPaths.DataDir).
