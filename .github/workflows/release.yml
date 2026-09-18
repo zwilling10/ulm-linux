@@ -1,22 +1,20 @@
 name: Release
 
-# Läuft nur bei einem Tag-Push nach Schema "v*" (z.B. v2.27.2) — baut die portable EXE UND den
-# Windows-Installer (Setup.exe, siehe installer/ULM.iss) über das bestehende build-release.sh und
-# hängt beide automatisch als GitHub-Release-Assets an, statt das manuell lokal auszuführen und
-# hochzuladen. Inno Setup (ISCC.exe) ist auf dem windows-latest-Runner bereits vorinstalliert
-# (siehe actions/runner-images Software-Liste), kein zusätzlicher Setup-Schritt nötig.
+# Läuft nur bei einem Tag-Push nach Schema "v*" (z.B. v2.45.0) — baut die self-contained
+# Single-File-Linux-x64-Binary (Einstellungen bereits in Linux/ULM.Linux.csproj: SelfContained,
+# PublishSingleFile, InvariantGlobalization) und hängt sie automatisch als GitHub-Release-Asset
+# an, analog zum bestehenden Windows-Release-Workflow im Haupt-ULM-Repo.
 on:
   push:
     tags:
       - "v*"
-  # Manuelles Nachtriggern für einen bereits existierenden Tag — z.B. wenn der Workflow beim
-  # ersten Tag-Push aus einem anderen Grund fehlschlug (siehe build-release.sh: der frühere
-  # 'zip'-Bug ließ jeden Release-Versuch scheitern, OHNE dass ein Release erstellt wurde).
-  # Ohne diesen Trigger musste man dafür bisher den Tag lokal+remote löschen und neu pushen.
+  # Manuelles Nachtriggern für einen bereits existierenden Tag, falls der Workflow beim ersten
+  # Tag-Push aus einem anderen Grund fehlschlägt — sonst müsste man den Tag lokal+remote löschen
+  # und neu pushen.
   workflow_dispatch:
     inputs:
       tag:
-        description: "Bereits existierender Tag, für den das Release (nach)gebaut werden soll (z.B. v2.30.0)"
+        description: "Bereits existierender Tag, für den das Release (nach)gebaut werden soll (z.B. v2.45.0)"
         required: true
 
 permissions:
@@ -24,7 +22,7 @@ permissions:
 
 jobs:
   build-and-release:
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
@@ -36,16 +34,24 @@ jobs:
         with:
           dotnet-version: "8.0.x"
 
-      - name: Portable EXE + Linux-Binary + Installer bauen
-        shell: bash
-        run: ./build-release.sh --zip --installer
+      - name: Linux-Binary bauen
+        run: |
+          VERSION=$(grep -oP '(?<=<Version>)[^<]+' Linux/ULM.Linux.csproj)
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          dotnet publish Linux/ULM.Linux.csproj -c Release -r linux-x64 --self-contained true
 
-      - name: GitHub Release erstellen und Assets anhängen
-        shell: bash
+          PUBLISH_DIR="Linux/bin/Release/net8.0/linux-x64/publish"
+          mkdir -p release
+          RELEASE_NAME="ulm-linux-v${VERSION}-x64"
+          cp "${PUBLISH_DIR}/ulm-linux" "release/${RELEASE_NAME}"
+          chmod +x "release/${RELEASE_NAME}"
+          (cd release && sha256sum "${RELEASE_NAME}" > SHA256SUMS)
+
+      - name: GitHub Release erstellen und Asset anhängen
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
-          gh release create "$TAG" release/*.exe release/*.zip release/*-linux-x64 release/SHA256SUMS \
-            --title "Universal Linux Manager $TAG" \
+          gh release create "$TAG" release/* \
+            --title "Universal Linux Manager (Linux-GUI) $TAG" \
             --generate-notes
