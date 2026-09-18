@@ -55,6 +55,12 @@
        bringt dafuer bereits ein automatisches Default-Glob mit; ein zusaetzliches eigenes Glob
        fuehrt zu "Duplicate x:Class directive"-Fehlern (jede .axaml-Datei waere doppelt erfasst). -->
 
+  <!-- Das Default-Glob deckt nur .axaml ab, keine Bilddateien — Assets/ muss daher explizit als
+       AvaloniaResource eingebunden werden, damit z.B. das App-Icon per avares://-URI ladbar ist. -->
+  <ItemGroup>
+    <AvaloniaResource Include="Assets\**" />
+  </ItemGroup>
+
   <!-- Erlaubt ULM.Linux.Tests Zugriff auf 'internal' Klassen/Methoden — gleiches Muster wie
        UniversalLinuxManager.csproj es fuer ULM.Tests bereits nutzt. -->
   <ItemGroup>

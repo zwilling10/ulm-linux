@@ -6,6 +6,7 @@
         x:Class="ULM.Linux.Views.MainWindow"
         x:DataType="vm:LinuxMainViewModel"
         Title="Universal Linux Manager"
+        Icon="/Assets/app-icon.png"
         Width="1160" Height="750" MinWidth="900" MinHeight="580"
         WindowStartupLocation="CenterScreen">
 
