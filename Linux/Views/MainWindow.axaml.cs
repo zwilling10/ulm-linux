@@ -16,11 +16,6 @@ namespace ULM.Linux.Views
         {
             AvaloniaXamlLoader.Load(this);
             DataContextChanged += (_, _) => WireViewModel();
-            // Nutzerwunsch (2026-09-04, 3/3): "automatisches Selbst-Update auch prüfen" — läuft
-            // unabhängig von den anderen Startup-Checks, einmalig nach dem ersten Anzeigen des
-            // Fensters (Opened, nicht Loaded — braucht `this` als Dialog-Owner, das steht bei
-            // Opened sicher bereit).
-            Opened += async (_, _) => await CheckForAppUpdateAsync();
         }
 
         private LinuxMainViewModel? _vm;
@@ -242,12 +237,18 @@ namespace ULM.Linux.Views
         /// <summary>Windows-Pendant: MainWindow.xaml.cs CheckUlmUpdateAsync — bewusst deutlich
         /// einfacher: fragt EINMAL "jetzt aktualisieren?" (ConfirmDialog) statt eines persistenten
         /// Banner-Zustands (Available/Downloading/ReadyToInstall), dafür kein neuer UI-Unterbau
-        /// nötig. Siehe LinuxSelfUpdateService für den eigentlichen Check/Download/Ersetzen-Ablauf.</summary>
-        private async Task CheckForAppUpdateAsync()
+        /// nötig. Siehe LinuxSelfUpdateService für den eigentlichen Check/Download/Ersetzen-Ablauf.
+        ///
+        /// Nutzerfund (2026-09-18): lief bisher parallel zum Katalog-/Stick-Scan (beide an
+        /// Opened gehängt, 2s-Verzögerung hier) — der "Neue Version verfügbar?"-Dialog poppte
+        /// dadurch mitten im bereits laufenden Online-Scan auf, verwirrend. Jetzt wird diese
+        /// Methode von App.axaml.cs VOR dem Start des Scans awaited, damit ein Update-Angebot
+        /// ganz am Anfang kommt und — falls angenommen — der Scan direkt von der neuen Version
+        /// ausgeführt wird (ApplyUpdateAndRestart beendet den alten Prozess, der Scan-Code danach
+        /// läuft dann gar nicht mehr in diesem Prozess).</summary>
+        internal async Task CheckForAppUpdateAsync()
         {
             if (_vm is null) return;
-            // Nicht den Programmstart verlangsamen — Katalog/Stick-Erkennung sollen zuerst sichtbar sein.
-            await Task.Delay(2000);
 
             LinuxUpdateInfo info;
             try { info = await LinuxSelfUpdateService.Instance.CheckForUpdateAsync(Constants.AppVersion); }
