@@ -42,8 +42,6 @@ namespace ULM.Core.Models
         public string Mirror5     { get; set; } = string.Empty;
         public string GithubRepo  { get; set; } = string.Empty;
         public string GithubAsset { get; set; } = string.Empty;
-        public string DiscoverySlug { get; set; } = string.Empty;
-        public string DiscoveryPage { get; set; } = string.Empty;
         public string Tip         { get; set; } = string.Empty;
         // Englische Variante von Tip — optional; TipTooltip (IsoViewModels.cs) fällt auf Tip
         // zurück, wenn leer (z.B. bei älteren/manuell angelegten Einträgen ohne Übersetzung).
@@ -150,20 +148,11 @@ namespace ULM.Core.Models
         private static readonly Regex PinnedSourceForgeMirror =
             new(@"^https?://(?!master\.dl\.sourceforge\.net)[a-z0-9.-]+\.dl\.sourceforge\.net/project/([^?#]+)",
                 RegexOptions.IgnoreCase);
-        private static readonly Regex DownloadsSourceForgeProject =
-            new(@"^https?://downloads\.sourceforge\.net/project/([^?#]+)", RegexOptions.IgnoreCase);
-        private static readonly Regex SourceForgeFilesDownload =
-            new(@"^https?://sourceforge\.net/projects/([^/]+)/files/(.+?\.iso)/download(?:[?#].*)?$", RegexOptions.IgnoreCase);
 
         internal static string NormalizeSourceForgeUrl(string url)
         {
             Match m = PinnedSourceForgeMirror.Match(url);
-            if (!m.Success) m = DownloadsSourceForgeProject.Match(url);
-            if (m.Success) return $"https://master.dl.sourceforge.net/project/{m.Groups[1].Value}?viasf=1";
-            Match files = SourceForgeFilesDownload.Match(url);
-            return files.Success
-                ? $"https://master.dl.sourceforge.net/project/{files.Groups[1].Value}/{files.Groups[2].Value}?viasf=1"
-                : url;
+            return m.Success ? $"https://master.dl.sourceforge.net/project/{m.Groups[1].Value}?viasf=1" : url;
         }
 
         // Bekannte, geografisch gestreute SourceForge-Mirror. "?use_mirror=<name>" bittet

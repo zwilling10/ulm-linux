@@ -2,9 +2,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Avalonia.Controls;
-using Avalonia.Input;
 using Avalonia.Markup.Xaml;
-using ULM.Assistant.Models;
 using ULM.Core.Models;
 using ULM.Core.Services;
 using ULM.Infrastructure;
@@ -17,52 +15,37 @@ namespace ULM.Linux.Views
         public MainWindow()
         {
             AvaloniaXamlLoader.Load(this);
-            var uliButton = this.FindControl<AssistantAvatarButton>("UliButton");
-            if (uliButton is not null)
-                uliButton.GetLanguage = () => LocalizationService.Current == AppLanguage.German
-                    ? AssistantLanguage.German
-                    : AssistantLanguage.English;
             DataContextChanged += (_, _) => WireViewModel();
             // Nutzerwunsch (2026-09-04, 3/3): "automatisches Selbst-Update auch prüfen" — läuft
             // unabhängig von den anderen Startup-Checks, einmalig nach dem ersten Anzeigen des
             // Fensters (Opened, nicht Loaded — braucht `this` als Dialog-Owner, das steht bei
             // Opened sicher bereit).
-            Opened += async (_, _) =>
-            {
-                await ShowReleaseNotesAsync(true);
-                await RunStartupOnlineChecksWithDialogAsync();
-                await CheckForAppUpdateAsync();
-            };
+            Opened += async (_, _) => await CheckForAppUpdateAsync();
         }
 
         private LinuxMainViewModel? _vm;
         private DownloadProgressDialog? _downloadProgressDialog;
         private bool _orphanCheckDone;
-        private bool _startupOnlineCheckActive;
 
         private void WireViewModel()
         {
             if (_vm is not null)
             {
                 _vm.HealthCheckCompleted -= OnHealthCheckCompleted;
-                _vm.MissingOnStickDetected -= OnMissingOnStickDetected;
-                _vm.IncompleteIsosOnStickDetected -= OnIncompleteIsosOnStickDetected;
-                _vm.DownloadItemFailed -= OnDownloadItemFailed;
                 _vm.AutoVersionCheckCompleted -= OnAutoVersionCheckCompleted;
                 _vm.NewerVersionsOnStickDetected -= OnNewerVersionsOnStickDetected;
                 _vm.UnknownIsosOnStickDetected -= OnUnknownIsosOnStickDetected;
                 _vm.StaleDuplicatesOnStickDetected -= OnStaleDuplicatesOnStickDetected;
+                _vm.UpdatesAvailableForDownload -= OnUpdatesAvailableForDownload;
             }
             _vm = DataContext as LinuxMainViewModel;
             if (_vm is not null)
             {
                 _vm.HealthCheckCompleted += OnHealthCheckCompleted;
-                _vm.MissingOnStickDetected += OnMissingOnStickDetected;
-                _vm.IncompleteIsosOnStickDetected += OnIncompleteIsosOnStickDetected;
-                _vm.DownloadItemFailed += OnDownloadItemFailed;
                 _vm.NewerVersionsOnStickDetected += OnNewerVersionsOnStickDetected;
                 _vm.UnknownIsosOnStickDetected += OnUnknownIsosOnStickDetected;
                 _vm.StaleDuplicatesOnStickDetected += OnStaleDuplicatesOnStickDetected;
+                _vm.UpdatesAvailableForDownload += OnUpdatesAvailableForDownload;
                 // Windows-Pendant: MainWindow.xaml.cs' `_vm.AutoVersionCheckCompleted += async () =>
                 // { ... await RunLocalFileMaintenanceAsync(); }` — läuft genau einmal pro Sitzung,
                 // direkt nach dem ersten abgeschlossenen Online-Versionscheck ("Datenmüll-Schutz",
@@ -95,9 +78,7 @@ namespace ULM.Linux.Views
         private void OpenProgressDialog(IEnumerable<string> names, bool hasDownload, bool hasCopy)
         {
             _downloadProgressDialog?.Close();
-            _failedDownloads.Clear();
             var dlg = new DownloadProgressDialog(names, hasDownload, hasCopy);
-            dlg.ManualSearchRequested += OnManualSearchRequested;
             dlg.CancelRequested += () => _vm?.CancelDownloadCommand.Execute(null);
             dlg.FasterMirrorRequested += name => _vm?.RequestFasterMirrorCommand.Execute(name);
             dlg.Closed += (_, _) => _downloadProgressDialog = null;
@@ -120,7 +101,6 @@ namespace ULM.Linux.Views
         {
             if (_vm is null) return;
             await new SettingsDialog(_vm).ShowDialog(this);
-            _vm.IsExpertMode = LinuxPreferences.Load().ExpertMode;
         }
 
         private async void BtnHelp_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e) =>
@@ -137,42 +117,9 @@ namespace ULM.Linux.Views
 
         private async void OnAutoVersionCheckCompleted()
         {
-            if (_startupOnlineCheckActive) return;
             if (_orphanCheckDone) return;
             _orphanCheckDone = true;
             await RunLocalFileMaintenanceAsync();
-        }
-
-        private async Task RunStartupOnlineChecksWithDialogAsync()
-        {
-            if (_vm is null) return;
-            if (!await _vm.HasActiveInternetConnectionAsync())
-            {
-                await InfoDialog.ShowAsync(this, Constants.AppTitle,
-                    "Keine aktive Internetverbindung. ULM kann die automatische URL-Prüfung und Versionsaktualisierung der Distros derzeit nicht ausführen.");
-                return;
-            }
-
-            var dlg = new StartupOnlineCheckDialog();
-            _startupOnlineCheckActive = true;
-            var dialogTask = dlg.ShowDialog(this);
-            await Task.Yield();
-            try
-            {
-                await _vm.RunStartupOnlineChecksAsync(dlg.SetStatus, dlg.SetProgress);
-            }
-            finally
-            {
-                _startupOnlineCheckActive = false;
-                if (dlg.IsVisible) dlg.Close();
-            }
-            await dialogTask;
-
-            if (!_orphanCheckDone)
-            {
-                _orphanCheckDone = true;
-                await RunLocalFileMaintenanceAsync();
-            }
         }
 
         /// <summary>Windows-Pendant: MainWindow.xaml.cs' StaleDuplicatesOnStickDetected-Handler
@@ -181,28 +128,56 @@ namespace ULM.Linux.Views
         /// findet den physischen Pfad direkt über den bereits vom Scan bekannten alten Dateinamen
         /// statt Windows' zusätzlicher FindOldDuplicatePath-Rekursion (der Linux-Scan liefert die
         /// vollen Pfade bereits über UsbService.StickIso.FullPath).</summary>
-        private async void OnStaleDuplicatesOnStickDetected(List<(IsoEntry Entry, string OldFilename)> duplicates, string mountPoint)
+        private async Task OnStaleDuplicatesOnStickDetected(List<(IsoEntry Entry, string OldFilename)> duplicates, string mountPoint)
         {
             if (_vm is null || duplicates.Count == 0) return;
             var files = new List<(string Path, long Size)>();
-            foreach (var (_, oldFilename) in duplicates)
+            var entryByPath = new Dictionary<string, IsoEntry>(System.StringComparer.OrdinalIgnoreCase);
+            foreach (var (entry, oldFilename) in duplicates)
             {
                 var stickIso = _vm.LastStickListing.FirstOrDefault(s => string.Equals(s.Filename, oldFilename, System.StringComparison.OrdinalIgnoreCase));
-                if (stickIso is not null) files.Add((stickIso.FullPath, stickIso.Size));
+                if (stickIso is null) continue;
+                files.Add((stickIso.FullPath, stickIso.Size));
+                entryByPath[stickIso.FullPath] = entry;
             }
             if (files.Count == 0) return;
 
             var dlg = new OrphanedDownloadsDialog(files, LocalizationService.T(Str.Msg_OutdatedDuplicates_Title), LocalizationService.T(Str.Msg_OutdatedDuplicates_Description));
             if (!await dlg.ShowDialog<bool>(this)) return;
             int deleted = 0;
+            var outdatedEntries = new List<IsoEntry>();
             foreach (string path in dlg.ToDelete)
-                if (IsoEntry.TryDelete(path, line => _vm.LogEntries.Add(line))) deleted++;
+            {
+                if (!IsoEntry.TryDelete(path, line => _vm.LogEntries.Add(line))) continue;
+                deleted++;
+                if (entryByPath.TryGetValue(path, out var entry)) outdatedEntries.Add(entry);
+            }
             _vm.LogEntries.Add(string.Format(LocalizationService.T(Str.Log_StaleDuplicatesDeletedStatus), deleted, mountPoint));
+
+            // Nutzerfund (2026-09-16): veraltete Duplikate auf dem Stick wurden bisher NUR zum
+            // Löschen angeboten — der Anwender müsste die aktuelle Version danach manuell erneut
+            // herunterladen und auf den Stick kopieren. Direkt nach dem Löschen dieselbe Download-
+            // Abfrage wie bei UpdatesAvailableForDownload anbieten (derselbe Stick ist über
+            // _vm.SelectedDrive noch ausgewählt, RunDownloadFlowAsync fragt dort selbst nach
+            // Kopiermodus/Slots).
+            if (outdatedEntries.Count > 0)
+            {
+                string names = string.Join("\n", outdatedEntries.Select(e => "• " + e.Name));
+                bool proceed = await ConfirmDialog.ShowAsync(this,
+                    LocalizationService.T(Str.Msg_UpdatesAvailable_Title),
+                    string.Format(LocalizationService.T(Str.Msg_UpdatesAvailable_Body), outdatedEntries.Count, names));
+                if (proceed)
+                {
+                    foreach (var e in outdatedEntries) e.IsSelected = true;
+                    _vm.RefreshRows();
+                    await RunDownloadFlowAsync();
+                }
+            }
         }
 
         /// <summary>Windows-Pendant: MainWindow.xaml.cs' NewerVersionsOnStickDetected-Handler —
         /// bietet je gefundener neuerer Stick-Version Replace/Add/Skip an.</summary>
-        private async void OnNewerVersionsOnStickDetected(List<(IsoEntry DbEntry, UsbService.StickIso StickIso)> matches, string mountPoint)
+        private async Task OnNewerVersionsOnStickDetected(List<(IsoEntry DbEntry, UsbService.StickIso StickIso)> matches, string mountPoint)
         {
             if (_vm is null || matches.Count == 0) return;
             var dlg = new NewerVersionOnStickDialog(matches);
@@ -220,10 +195,29 @@ namespace ULM.Linux.Views
             if (added > 0) _vm.RunHealthCheckCommand.Execute(null);
         }
 
+        /// <summary>Nutzerwunsch (2026-09-16): findet der Online-/Gesundheitscheck ein Update für
+        /// einen Eintrag, der bereits lokal heruntergeladen ODER auf dem zuletzt gescannten Stick
+        /// vorhanden ist (IsoEntry.IsAvailableAnywhere), soll das nicht nur im Katalog vermerkt
+        /// werden, sondern dem Anwender gleich zum Download angeboten werden — markiert die
+        /// betroffenen Einträge als ausgewählt und stößt exakt denselben Dialog-Ablauf an wie ein
+        /// manueller Klick auf "Download" (Stick-Kopiermodus/Freispeicher/Slots).</summary>
+        private async void OnUpdatesAvailableForDownload(List<IsoEntry> entries)
+        {
+            if (_vm is null || _vm.IsBusy || entries.Count == 0) return;
+            string names = string.Join("\n", entries.Select(e => "• " + e.Name));
+            bool proceed = await ConfirmDialog.ShowAsync(this,
+                LocalizationService.T(Str.Msg_UpdatesAvailable_Title),
+                string.Format(LocalizationService.T(Str.Msg_UpdatesAvailable_Body), entries.Count, names));
+            if (!proceed) return;
+            foreach (var e in entries) e.IsSelected = true;
+            _vm.RefreshRows();
+            await RunDownloadFlowAsync();
+        }
+
         /// <summary>Windows-Pendant: MainWindow.xaml.cs' UnknownIsosOnStickDetected-Handler —
         /// unbekannte ISO-Dateien auf dem Stick zum Importieren anbieten (Name/Kategorie/URL
         /// zuweisen), verschiebt sie danach in den passenden Kategorie-Ordner.</summary>
-        private async void OnUnknownIsosOnStickDetected(List<UsbService.StickIso> unknowns, string mountPoint)
+        private async Task OnUnknownIsosOnStickDetected(List<UsbService.StickIso> unknowns, string mountPoint)
         {
             if (_vm is null || unknowns.Count == 0) return;
             var dlg = new ImportStickIsosDialog(unknowns);
@@ -284,7 +278,13 @@ namespace ULM.Linux.Views
             catch (System.Exception ex) { _vm.LogEntries.Add(string.Format(LocalizationService.T(Str.Msg_UpdateDownloadFailed)) + $" ({ex.Message})"); }
         }
 
-        // Prüft lokale ISO-/Teildateien nach dem Versionscheck.
+        /// <summary>Windows-Pendant: MainWindow.xaml.cs RunLocalFileMaintenanceAsync — "Datenmüll-
+        /// Schutz" (Nutzerwunsch 2026-09-04): scannt das Arbeitsverzeichnis nach .iso/.part-Dateien,
+        /// klassifiziert sie (leer/verwaist/unvollständig/zu klein/ok) und bietet die verdächtigen
+        /// zum Löschen an. Bewusst NICHT mit übernommen: der anschließende Windows-Zweig
+        /// "GetVerifiedCompleteEntriesMissingFromStick → OnMissingOnStickDetected" (auf Stick fehlende,
+        /// aber lokal vollständige ISOs automatisch zum Nachkopieren anbieten) — eigenständiges
+        /// Feature, nicht Teil von "Datenmüll-Schutz", separat vormerken falls gewünscht.</summary>
         private async Task RunLocalFileMaintenanceAsync()
         {
             if (_vm is null) return;
@@ -339,7 +339,6 @@ namespace ULM.Linux.Views
                 if (candidates.Count == 0)
                 {
                     _vm.LogEntries.Add(LocalizationService.T(Str.Log_NoJunkFound));
-                    _vm.OfferMissingLocalCopiesForSelectedDrive();
                     return;
                 }
 
@@ -363,7 +362,6 @@ namespace ULM.Linux.Views
                     if (deleted > 0) _vm.RefreshRows();
                 }
                 else _vm.LogEntries.Add(string.Format(LocalizationService.T(Str.Log_MaintenanceSkipped), candidates.Count));
-                _vm.OfferMissingLocalCopiesForSelectedDrive();
             }
             catch (System.Exception ex) { _vm.LogEntries.Add(string.Format(LocalizationService.T(Str.Log_FileMaintenanceError), ex.Message)); }
         }
@@ -413,12 +411,7 @@ namespace ULM.Linux.Views
             // Schutz" (Nutzerwunsch 2026-09-04): erkennt ein Online-Suchtreffer eine bereits
             // vorhandene Distro (andere Schreibweise/Dateiname), wird kein doppelter Eintrag
             // angelegt, sondern der bestehende Eintrag übernimmt ggf. den neuen Dateinamen.
-            var autoDownloadQueue = new List<IsoEntry>();
-            foreach (var entry in dlg.AddedEntries)
-            {
-                IsoEntry actual = _vm.AddImportedEntry(entry);
-                if (dlg.ToDownload.Contains(entry)) autoDownloadQueue.Add(actual);
-            }
+            foreach (var entry in dlg.AddedEntries) _vm.AddImportedEntry(entry);
             ULM.Core.Services.IsoDatabaseService.Instance.Save();
             // Nutzerfund (2026-09-06): Refresh() (voller DB-Reload von der Platte) wischte die
             // Online-Check-Ergebnisse (RemoteVersion/UpdateAvailable, nicht persistiert) weg —
@@ -428,28 +421,13 @@ namespace ULM.Linux.Views
             // dasselbe.
             _vm.RefreshRows();
             _vm.LogEntries.Add(string.Format(LocalizationService.T(Str.Log_IsosAddedFromOnlineSearch), dlg.AddedEntries.Count));
+            // Frisch aus der Online-Suche übernommene Einträge haben nie eine geprüfte Url — wie bei
+            // Datenbank-Neuanlagen lohnt sich hier der volle Gesundheitscheck sofort.
+            _vm.RunHealthCheckCommand.Execute(null);
 
-            if (autoDownloadQueue.Count > 0)
-            {
-                foreach (var entry in autoDownloadQueue) entry.IsSelected = true;
+            if (dlg.ToDownload.Count > 0)
                 foreach (var row in _vm.Rows)
-                    if (autoDownloadQueue.Contains(row.Entry)) row.IsSelected = true;
-                await StartDownloadFlowAsync(autoDownloadQueue);
-            }
-            else
-                _vm.RunHealthCheckCommand.Execute(null);
-        }
-
-        private async void EntryRow_DoubleTapped(object? sender, TappedEventArgs e)
-        {
-            if (sender is not Control { DataContext: LinuxIsoRow row } || string.IsNullOrWhiteSpace(row.Entry.Tip)) return;
-            await InfoDialog.ShowAsync(this, row.Entry.Name, row.Entry.Tip);
-        }
-
-        private async void BtnManualSearch_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
-        {
-            if (sender is not Control { DataContext: LinuxIsoRow row }) return;
-            await RepairSourceAsync(row.Entry.Name);
+                    if (dlg.ToDownload.Contains(row.Entry)) row.IsSelected = true;
         }
 
         /// <summary>Windows-Pendant: MainWindow.xaml.cs BtnDownload_Click — Nutzerwunsch
@@ -457,7 +435,12 @@ namespace ULM.Linux.Views
         /// NumericUpDown-Lösung. Klärt Kopiermodus/Freispeicher/parallele Slots per Dialogkette
         /// (braucht dieses Fenster als Owner, daher Code-behind statt VM-Command — wie unter
         /// Windows) und ruft danach DownloadQueueAsync mit dem geklärten Auftrag auf.</summary>
-        private async void BtnDownload_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+        private async void BtnDownload_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => await RunDownloadFlowAsync();
+
+        /// <summary>Eigentlicher Ablauf von BtnDownload_Click, als awaitbare Task ausgelagert —
+        /// Nutzerwunsch (2026-09-16): auch von OnUpdatesAvailableForDownload aufrufbar (ein
+        /// XAML-Click-Handler kann nicht direkt awaited werden, "async void" ist fire-and-forget).</summary>
+        private async Task RunDownloadFlowAsync()
         {
             if (_vm is null || _vm.IsBusy) return;
             List<IsoEntry> queue = _vm.GetSelectedEntries();
@@ -466,12 +449,7 @@ namespace ULM.Linux.Views
                 await InfoDialog.ShowAsync(this, Constants.AppTitle, LocalizationService.T(Str.Msg_SelectAtLeastOne));
                 return;
             }
-            await StartDownloadFlowAsync(queue);
-        }
 
-        private async Task StartDownloadFlowAsync(List<IsoEntry> queue)
-        {
-            if (_vm is null || _vm.IsBusy || queue.Count == 0) return;
             var drive = _vm.SelectedDrive;
             string? mountPoint = drive?.MountPoint;
             bool copy = false, del = false;

@@ -11,7 +11,18 @@ using ULM.Infrastructure;
 
 namespace ULM.Linux.Views
 {
-    /// <summary>Linux-Hilfe mit den verfügbaren Programm- und Expertenfunktionen.</summary>
+    /// <summary>Avalonia-Pendant zu Views/Dialogs/HelpDialog.cs (WPF, 428 Zeilen, 171 Str-Werte) —
+    /// bewusst KEIN 1:1-Port: zwei Abschnitte lässt Linux ganz weg, da die zugrunde liegenden
+    /// Konzepte hier nicht existieren ("🌓 Design" — nur ein Dark-Theme, kein Umschalter; "🛠
+    /// Expert-Modus" — Linux zeigt immer alles, keine Einfach/Experte-Unterscheidung; die darin
+    /// beschriebenen EINZELFEATURES wie DB-Editor/GitHub-Token/DB-Gesundheitscheck existieren auf
+    /// Linux zwar bereits als normale Aktionsleisten-Buttons, sind hier aber (noch) nicht separat
+    /// dokumentiert — spätere Ergänzung möglich). Zusätzlich zwei Einzel-Punkte weggelassen, die
+    /// auf Linux keine Entsprechung haben: "🚀 Autostart" (kein Linux-Autostart implementiert) und
+    /// "🔁 Verpasste Kopien nachholen" (kein eigener Button auf Linux). Alle übrigen ~150 Str-Werte
+    /// sind geteilter Code (Infrastructure/Str.cs) und werden unverändert wiederverwendet — nur
+    /// 3 Stellen mit faktisch Windows-spezifischem Text (UAC/.exe, portabler Pfad neben der EXE,
+    /// "Expert-Modus"-Verweis) haben eigene Linux_Help_*-Gegenstücke bekommen.</summary>
     public sealed class HelpDialog : Window
     {
         private static readonly IBrush BrushHeader = new SolidColorBrush(Color.Parse("#EAF1F8"));
@@ -85,28 +96,14 @@ namespace ULM.Linux.Views
             content.Children.Add(MakeText(LocalizationService.T(Str.Help_Overview_Body)));
             content.Children.Add(Spacer());
 
-            // Programmstart
+            // ── Programmstart (ohne "Autostart" — auf Linux nicht implementiert) ──
             AddSection(LocalizationService.T(Str.Help_Sec_Startup_Title), LocalizationService.T(Str.Help_Sec_Startup_Nav));
             content.Children.Add(MakeText(LocalizationService.T(Str.Help_Startup_Intro)));
-            content.Children.Add(MakeItem(LocalizationService.T(Str.Help_Item_Autostart_Label),
-                LocalizationService.Current == AppLanguage.German
-                    ? "Unter Einstellungen einschalten: ULM startet dann bei der Anmeldung an dieser Linux-Sitzung. Dort auch wieder ausschaltbar."
-                    : "Enable in Settings to start ULM when you log into your Linux session. Disable it there at any time."));
             content.Children.Add(MakeItem(LocalizationService.T(Str.Help_Item_OnlineCheck_Label), LocalizationService.T(Str.Help_Item_OnlineCheck_Body)));
             content.Children.Add(MakeItem(LocalizationService.T(Str.Help_Item_UsbScan_Label), LocalizationService.T(Str.Help_Item_UsbScan_Body)));
             content.Children.Add(MakeItem(LocalizationService.T(Str.Help_Item_FileMaintenance_Label), LocalizationService.T(Str.Help_Item_FileMaintenance_Body)));
             content.Children.Add(MakeItem(LocalizationService.T(Str.Help_Item_UpdateCheck_Label), LocalizationService.T(Str.Help_Item_UpdateCheck_Body)));
             content.Children.Add(MakeItem(LocalizationService.T(Str.Help_Item_WhatsNew_Label), LocalizationService.T(Str.Help_Item_WhatsNew_Body)));
-            content.Children.Add(Spacer());
-
-            AddSection(LocalizationService.Current == AppLanguage.German ? "Einstellungen und Expertenmodus" : "Settings and expert mode",
-                LocalizationService.Current == AppLanguage.German ? "Einstellungen" : "Settings");
-            content.Children.Add(MakeText(LocalizationService.Current == AppLanguage.German
-                ? "Einstellungen bietet System-, helles und dunkles Design. Der Expertenmodus blendet zusätzliche Werkzeuge, Ventoy-Einrichtung und den Aktivitätsverlauf ein. Im einfachen Modus bleiben ISO-Auswahl und Downloads erreichbar."
-                : "Settings provides System, Light and Dark themes. Expert mode shows additional tools, Ventoy setup and activity history. Simple mode keeps ISO selection and downloads accessible."));
-            content.Children.Add(MakeText(LocalizationService.Current == AppLanguage.German
-                ? "Quelle reparieren: genau eine ISO markieren, eine neue Downloadquelle suchen oder eintragen und anschließend erneut herunterladen. Der gleiche Einstieg erscheint bei fehlgeschlagenen Downloads."
-                : "Repair source: select exactly one ISO, search for or enter a new download source, then retry. The same action is available for failed downloads."));
             content.Children.Add(Spacer());
 
             // ── Bedienung ──────────────────────────────────────────────────
@@ -176,13 +173,6 @@ namespace ULM.Linux.Views
 
             // ── USB-Stick (ohne "Verpasste Kopien nachholen" — kein eigener Button auf Linux) ──
             AddSection(LocalizationService.T(Str.Help_Sec_UsbStick_Title), LocalizationService.T(Str.Help_Sec_UsbStick_Nav));
-            content.Children.Add(MakeItem(LocalizationService.T(Str.Help_Item_CatchUpCopies_Label),
-                LocalizationService.Current == AppLanguage.German
-                    ? "Bietet lokal vollständig vorhandene, auf dem gewählten Stick fehlende ISOs zum Kopieren an. Der Expertenbereich enthält auch einen eigenen Button."
-                    : "Offers to copy locally complete ISOs missing from the selected USB drive. Expert mode also provides a dedicated button."));
-            content.Children.Add(MakeText(LocalizationService.Current == AppLanguage.German
-                ? "Die Integritätsprüfung lässt sich mit Abbrechen stoppen. Beschädigte oder unvollständige Stick-Dateien können anschließend gezielt ausgewählt und entfernt werden."
-                : "Use Cancel to stop an integrity check. Damaged or incomplete USB files can then be selected and removed."));
             content.Children.Add(MakeItem(LocalizationService.T(Str.Help_Item_WhatIsVentoy_Label), LocalizationService.T(Str.Help_Item_WhatIsVentoy_Body)));
             content.Children.Add(MakeItem(LocalizationService.T(Str.Help_Item_InstallUpdateVentoy_Label), LocalizationService.T(Str.Linux_Help_InstallUpdateVentoy_Body)));
             content.Children.Add(MakeItem(LocalizationService.T(Str.Help_Item_MultipleSticks_Label), LocalizationService.T(Str.Help_Item_MultipleSticks_Body)));

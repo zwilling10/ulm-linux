@@ -16,6 +16,11 @@ einzeln gestellt wurden.
 
 - [ ] `dotnet build UniversalLinuxManager.csproj -c Debug` → 0 Fehler/Warnungen
 - [ ] `dotnet test ULM.Tests` → alle grün
+- [ ] `dotnet build Linux/ULM.Linux.csproj -c Release` → 0 Fehler/Warnungen
+- [ ] `dotnet test Linux/ULM.Linux.Tests/ULM.Linux.Tests.csproj -c Release` → alle grün
+      (Windows-Build/-Tests laufen nur auf einem Windows-Runner/-Rechner — auf
+      Linux hier NETSDK1100-Fehler, dann nur den Linux-Teil prüfen und den
+      Windows-Teil dem Nutzer/CI überlassen.)
 - [ ] Bei Fehlschlag: **abbrechen**, nicht weitermachen, Nutzer informieren.
 - [ ] Alle Änderungen sind bereits committet (kein `git add -A`/Freitext-Commit
       an dieser Stelle — falls uncommittete Änderungen vorhanden sind, den
@@ -46,9 +51,14 @@ nächsten Start nach einem Versions-Wechsel automatisch angezeigt.
 
 ## 4. Projektseite (`docs/index.html`)
 
-- [ ] Versions-Badge in der Hero-Eyebrow-Zeile (`<div class="eyebrow">`) aktualisieren.
+- [ ] Versions-Badge in der Hero-Eyebrow-Zeile (`<div class="eyebrow">`) aktualisieren
+      (Vorkommen sowohl im HTML-Inline-Text als auch im `translations`-Objekt im
+      `<script>`-Block — beide müssen synchron bleiben).
 - [ ] Funktionen-Karten / Download-Bereich abgleichen, falls sich der
-      Funktionsumfang oder die Download-Varianten geändert haben.
+      Funktionsumfang oder die Download-Varianten geändert haben — seit v2.41.0
+      gibt es zwei gleichwertige Download-Gruppen (`.dl-os-group`), Windows UND
+      Linux, nicht mehr nur Windows. Beide Plattformen sollen immer optisch
+      gleichrangig bleiben (kein "Windows zuerst, Linux als Fußnote").
 - [ ] Anführungszeichen-Konvention beachten: „…" (deutsche Typografie,
       U+201E/U+201C) statt gerader `"…"` — siehe Commit 82aeb55 für den
       Präzedenzfall, warum das eine bewusste Konvention ist.
@@ -119,7 +129,14 @@ gh release view vX.Y.Z
 Erwartet: `UniversalLinuxManager-Setup-vX.Y.Z-win-x64.exe`,
 `UniversalLinuxManager-vX.Y.Z-win-x64.exe`,
 `UniversalLinuxManager-vX.Y.Z-win-x64.zip`,
+`UniversalLinuxManager-vX.Y.Z-linux-x64`,
 `SHA256SUMS`.
+
+Das Linux-Binary wird von `build-release.sh` bereits automatisch mitgebaut
+(Cross-Publish auf dem windows-latest-Runner, kein Linux-Runner nötig) und von
+`release.yml` über den Glob `release/*-linux-x64` mit hochgeladen — kein
+zusätzlicher manueller Schritt nötig, nur hier verifizieren, dass die Datei
+tatsächlich im Release-Asset-Set angekommen ist.
 
 ## 11. Alte Releases aufräumen
 

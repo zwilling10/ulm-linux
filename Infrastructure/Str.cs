@@ -162,7 +162,9 @@ namespace ULM.Infrastructure
         Msg_FreeSpace_Title,
         Msg_PhaseCopyToStick,
         Msg_SelectDriveFirst,
-        Msg_PleaseWait,
+        Msg_PleaseWait, Msg_PleaseBePatient,
+        Msg_UpdatesAvailable_Title,
+        Msg_UpdatesAvailable_Body,
         Msg_NoLocalIsos,
         Msg_NewDriveDetected_Body,
         Msg_NewDriveDetected_Title,
@@ -435,13 +437,19 @@ namespace ULM.Infrastructure
         Db_Field_PrimaryUrl, Db_Field_Filename, Db_Field_Mirror1, Db_Field_Mirror2, Db_Field_Mirror3,
         Db_Field_GithubRepo, Db_Field_GithubAsset, Db_Field_Description, Db_Btn_Save, Db_Btn_Cancel,
         Db_RequiredFields_Body, Db_RequiredFields_Title, Db_NameTaken_Body, Db_NameTaken_Title,
+        Db_Btn_OnlineSearch, Db_OnlineSearch_Running, Db_OnlineSearch_NotFound, Db_OnlineSearch_Found,
+        Db_OnlineSearch_Blocked,
+
+        Preview_DialogTitle, Preview_OpenTooltip, Preview_LoadError,
+        Preview_Label_BasedOn, Preview_Label_Origin, Preview_Label_Architecture,
+        Preview_Label_Desktop, Preview_Label_Status, Preview_Status_Active,
+        Preview_Status_Inactive, Preview_Label_Popularity, Preview_PopularityValue,
+        Preview_OpenInBrowser,
 
         Db_SearchDialog_Title, Db_Tab_Latest, Db_Tab_Popular, Db_Chk_DownloadImmediately,
         Db_Btn_CloseSimple, Db_Btn_Refresh, Db_Btn_TakeOver, Db_Loading, Db_NoDiscoveryResults,
-        Db_DiscoverySearchFallback,
         Db_FromCache, Db_FreshlyLoaded, Db_DiscoveryStatusSuffix, Db_NameAlreadyInDb,
         Db_SuggestedCategory, Db_DistrowatchTags, Db_TakenOverStatus, Db_DiscoveryError,
-        Db_Discovery_AddedOn, Db_Discovery_RankHits,
 
         Db_ImportDialog_Title, Db_ImportDialog_Info, Db_ColHeader_NameEdit, Db_ColHeader_Category,
         Db_FileSizeLine, Db_SourceUrlLabel, Db_Btn_SelectAll, Db_Btn_DeselectAll, Db_Btn_Skip,
@@ -570,10 +578,5 @@ namespace ULM.Infrastructure
         Linux_Download_FasterMirrorTooltip,
 
         Db_PreviewButtonTooltip,
-        Preview_DialogTitle, Preview_OpenTooltip, Preview_LoadError,
-        Preview_Label_BasedOn, Preview_Label_Origin, Preview_Label_Architecture,
-        Preview_Label_Desktop, Preview_Label_Status, Preview_Status_Active,
-        Preview_Status_Inactive, Preview_Label_Popularity, Preview_PopularityValue,
-        Preview_OpenInBrowser,
     }
 }

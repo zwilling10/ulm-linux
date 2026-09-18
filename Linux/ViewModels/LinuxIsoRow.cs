@@ -131,7 +131,7 @@ namespace ULM.Linux.ViewModels
         /// vermeidet, dass jeder 0,4s-Fortschritts-Tick des DownloadWorker/CopyToUsbWorker die
         /// persistierte IsoEntry-DB unnötig anfasst.</summary>
         public string LocalStatus => _liveStatus ?? (Entry.IsLocallyAvailable(_downloadDirectory)
-            ? $"{LocalizationService.T(Str.Row_Local)} {Entry.LocalFileSize(_downloadDirectory) / 1_048_576} MB"
+            ? LocalizationService.T(Str.Row_Local)
             : LocalizationService.T(Str.Row_NotLocal));
 
         /// <summary>Steuert die Sichtbarkeit des "⚡ schneller"-Buttons je Zeile — Windows-Pendant:
@@ -160,30 +160,13 @@ namespace ULM.Linux.ViewModels
             Core.Models.UsbStatus.Ok       => string.IsNullOrEmpty(Entry.UsbSize) ? LocalizationService.T(Str.Row_Yes) : $"{LocalizationService.T(Str.Row_Yes)} {Entry.UsbSize}",
             Core.Models.UsbStatus.Outdated => string.IsNullOrEmpty(Entry.UsbSize) ? LocalizationService.T(Str.Row_Outdated) : $"{LocalizationService.T(Str.Row_Outdated)} {Entry.UsbSize}",
             Core.Models.UsbStatus.Missing  => LocalizationService.T(Str.Row_No),
-            _                               => LocalizationService.T(Str.Row_Unverified),
+            _                               => "-",
         };
 
-        public string VersionStatus
-        {
-            get
-            {
-                if (Entry.HasResolvedUpdate) return $"{LocalizationService.T(Str.Row_UpdatePrefix)} v{Entry.RemoteVersion}";
-                if (Entry.HasOnlineVersionInfo) return $"{LocalizationService.T(Str.Row_CurrentPrefix)} (v{Entry.RemoteVersion})";
-                if (Entry.UsbStatus == Core.Models.UsbStatus.Ok) return LocalizationService.T(Str.Row_Yes);
-                if (Entry.IsLocallyAvailable(_downloadDirectory)) return LocalizationService.T(Str.Row_LocallyAvailable);
-                return "?";
-            }
-        }
-
-        public string ManualSearchTooltip => LocalizationService.T(Str.Row_ManualSearchTooltip);
-        public bool ShowManualSearchButton => Entry.FailedResolveStreak >= Constants.ManualSearchFailureThreshold;
-        public bool HasHashStatus => !string.IsNullOrEmpty(Entry.Sha256);
-        public IBrush HashStatusBrush => Entry.HashMismatchDetected ? BrushRed : BrushGreen;
-        public string HashStatusTooltip => Entry.HashMismatchDetected
-            ? LocalizationService.T(Str.Row_HashMismatch)
-            : Entry.Sha256Source == "OfficialChecksum"
-                ? LocalizationService.T(Str.Row_HashVerifiedOfficial)
-                : LocalizationService.T(Str.Row_HashLocalOnly);
+        /// <summary>Windows-Spalte "Aktuell". Zeigt die zuletzt aufgelöste Version, falls
+        /// vorhanden (nach einem Download-Versuch via ResolveFunc gesetzt) — ohne Live-
+        /// Update-Vergleich (das ist Phase-B-Scope, "Updates prüfen").</summary>
+        public string VersionStatus => string.IsNullOrEmpty(Entry.RemoteVersion) ? "-" : $"v{Entry.RemoteVersion}";
 
         /// <summary>Meldet Anzeige-Properties als geändert, ohne das Objekt neu zu erzeugen —
         /// nötig, weil UsbStatus/VersionStatus vom gemeinsamen IsoEntry gelesen werden, das sich
@@ -198,11 +181,6 @@ namespace ULM.Linux.ViewModels
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LocalStatus)));
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(UsbStatus)));
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(VersionStatus)));
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ManualSearchTooltip)));
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ShowManualSearchButton)));
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasHashStatus)));
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HashStatusBrush)));
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HashStatusTooltip)));
         }
     }
 }

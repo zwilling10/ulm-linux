@@ -10,7 +10,15 @@ using ULM.Infrastructure;
 
 namespace ULM.Linux.Views
 {
-    /// <summary>Download/copy progress with faster mirrors and manual source repair.</summary>
+    /// <summary>Avalonia-Pendant zu Windows' DownloadProgressDialog (Views/Dialogs/
+    /// DownloadDialogs.cs) — Nutzerfund (2026-09-04): "es fehlt das Fenster das den Download und
+    /// Kopieren anzeigt", die bisherige Inline-Zeilen-Anzeige allein reichte nicht. Bewusst
+    /// SCHLANKER als das Windows-Original: kein "🔧 Quelle manuell suchen"-Button (der hängt am
+    /// Windows-only Härtefall-Nachschlag-System, das auf Linux nicht existiert) und der
+    /// "(schneller)"-Button nutzt einen normalen, per Theme gestylten Button statt Windows'
+    /// eigenem ControlTemplate/Trigger-Pillenbutton (Avalonia stylt darüber ohnehin einheitlicher).
+    /// Nicht-modal (Show(), nicht ShowDialog()) — läuft parallel zum Hauptfenster weiter, exakt wie
+    /// unter Windows.</summary>
     public sealed class DownloadProgressDialog : Window
     {
         private static readonly IBrush BrushGreen  = new SolidColorBrush(Color.Parse("#2ECC71"));
@@ -21,7 +29,6 @@ namespace ULM.Linux.Views
         private static readonly IBrush BrushBorder = new SolidColorBrush(Color.Parse("#336B9E"));
 
         public event Action? CancelRequested;
-        public event Action<string>? ManualSearchRequested;
         public event Action<string>? FasterMirrorRequested;
 
         private readonly StackPanel _itemsPanel;
@@ -41,7 +48,6 @@ namespace ULM.Linux.Views
             public required TextBlock PercentText;
             public required TextBlock StatusText;
             public required Button FasterBtn;
-            public required Button ManualSearchBtn;
             public required string OriginalName;
         }
 
@@ -133,16 +139,9 @@ namespace ULM.Linux.Views
             var stat = new TextBlock { Text = LocalizationService.T(Str.Dl_Waiting), FontSize = 10.5, Foreground = BrushDim, TextTrimming = TextTrimming.CharacterEllipsis };
             stack.Children.Add(stat);
 
-            var manualBtn = new Button
-            {
-                Content = LocalizationService.T(Str.Dl_Btn_ManualSearch), Classes = { "ghost" },
-                IsVisible = false, Margin = new Thickness(0, 6, 0, 0)
-            };
-            manualBtn.Click += (_, _) => ManualSearchRequested?.Invoke(name);
-            stack.Children.Add(manualBtn);
             border.Child = stack;
             _itemsPanel.Children.Add(border);
-            return new Row { Container = border, NameText = nameText, Bar = bar, PercentText = pctText, StatusText = stat, FasterBtn = fasterBtn, ManualSearchBtn = manualBtn, OriginalName = name };
+            return new Row { Container = border, NameText = nameText, Bar = bar, PercentText = pctText, StatusText = stat, FasterBtn = fasterBtn, OriginalName = name };
         }
 
         private ItemState GetOrCreate(string name)
@@ -151,14 +150,6 @@ namespace ULM.Linux.Views
             s = new ItemState { UiRow = AddRow(name) };
             _items[name] = s;
             return s;
-        }
-
-        public void SetManualSearchCandidates(IEnumerable<string> names)
-        {
-            var candidates = new HashSet<string>(names, StringComparer.OrdinalIgnoreCase);
-            foreach (var item in _items)
-                if (item.Value.UiRow is { } row)
-                    row.ManualSearchBtn.IsVisible = !item.Value.Done && candidates.Contains(item.Key);
         }
 
         private static IBrush ProgressColor(int percent) =>
@@ -192,7 +183,6 @@ namespace ULM.Linux.Views
                 r.NameText.Text = string.Format(LocalizationService.T(Str.Dl_CopyingToStickSuffix), r.OriginalName);
                 r.Bar.Value = c; r.Bar.Foreground = ProgressColor(c); r.PercentText.Text = $"{c}%"; r.StatusText.Text = status;
                 r.FasterBtn.IsVisible = false;
-                r.ManualSearchBtn.IsVisible = false;
             }
             if (c >= 100) { MarkDone(name); return; }
             RecomputeOverall();

@@ -18,6 +18,11 @@ namespace ULM.Views.Dialogs
     {
         private static readonly (string Version, string[] Notes)[] History =
         {
+            ("2.41.0", new[]
+            {
+                "Neu: Es gibt jetzt eine native Linux-Version von ULM (Avalonia-Oberfläche) mit denselben Kernfunktionen — automatische Downloads, Ventoy-Integration, Gesundheitscheck. Als portable, self-contained Datei auf der Projektseite verfügbar.",
+                "Fehlerbehebung: Die automatische Quellensuche für Distros ohne dedizierten Erkennungs-Mechanismus (z.B. manuell hinzugefügte oder vom Stick importierte Einträge) fand oft nichts, weil die Suchanfrage zu viele Details aus dem Dateinamen enthielt (Datum, Architektur, Build-Variante). Sucht jetzt gezielter und findet dadurch deutlich mehr Quellen automatisch.",
+            }),
             ("2.40.0", new[]
             {
                 "Neu: ULM ist jetzt zweisprachig (Deutsch/Englisch) — umschaltbar über \"⚙ Einstellungen\". Betrifft das komplette Programm: Hauptfenster, alle Dialoge, Fehlermeldungen, Protokoll- und Statusanzeigen.",

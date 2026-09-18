@@ -87,8 +87,6 @@ namespace ULM.Core.Services
                     Mirror5     = d.GetValueOrDefault("Mirror5",     string.Empty),
                     GithubRepo  = d.GetValueOrDefault("GitHubRepo",  string.Empty),
                     GithubAsset = d.GetValueOrDefault("GitHubAsset", string.Empty),
-                    DiscoverySlug = d.GetValueOrDefault("DiscoverySlug", string.Empty),
-                    DiscoveryPage = d.GetValueOrDefault("DiscoveryPage", string.Empty),
                     Tip         = d.GetValueOrDefault("Tip",         string.Empty).Replace("\\n", "\n"),
                     TipEn       = d.GetValueOrDefault("TipEn",       string.Empty).Replace("\\n", "\n"),
                     // BUGFIX (finaler Review): Sha256/Sha256Source wurden hier bisher NICHT gelesen
@@ -164,8 +162,6 @@ namespace ULM.Core.Services
                 sb.AppendLine($"Mirror5     = {e.Mirror5}");
                 sb.AppendLine($"GitHubRepo  = {e.GithubRepo}");
                 sb.AppendLine($"GitHubAsset = {e.GithubAsset}");
-                sb.AppendLine($"DiscoverySlug = {e.DiscoverySlug}");
-                sb.AppendLine($"DiscoveryPage = {e.DiscoveryPage}");
                 sb.AppendLine($"Tip         = {e.Tip.Replace("\n", "\\n")}");
                 sb.AppendLine($"TipEn       = {e.TipEn.Replace("\n", "\\n")}");
                 // BUGFIX (finaler Review): Sha256/Sha256Source wurden hier bisher NICHT geschrieben
@@ -229,7 +225,7 @@ namespace ULM.Core.Services
         private static readonly string[][] DefaultDatabase =
         {
             // ── Antivirus ─────────────────────────────────────────────────
-            ["Dr.Web LiveDisk 9.0.1", "Antivirus",
+            ["Dr.Web LiveDisk 9.0.0", "Antivirus",
              "", "drweb-livedisk-900-cd.iso", "", "", "", "", "", "", "",
              "🛡 Dr.Web LiveDisk — Antivirus Live-System\n" +
              "✅ Bootet OHNE Installation (Debian-basiert)\n" +

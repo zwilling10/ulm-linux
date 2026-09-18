@@ -7,39 +7,34 @@
         (":pointerover"/":pressed"/Button.primary usw.) statt Trigger-Elemente.
     -->
     <Styles.Resources>
-        <ResourceDictionary>
-            <ResourceDictionary.ThemeDictionaries>
-                <ResourceDictionary x:Key="Light">
-                <SolidColorBrush x:Key="BrushBg" Color="#F4F7FA"/>
-                <SolidColorBrush x:Key="BrushWhite" Color="#FFFFFF"/>
-                <SolidColorBrush x:Key="BrushHeader" Color="#172B40"/>
-                <SolidColorBrush x:Key="BrushHeaderBar" Color="#E4EDF5"/>
-                <SolidColorBrush x:Key="BrushBlue" Color="#1265A0"/>
-                <SolidColorBrush x:Key="BrushMid" Color="#354C63"/>
-                <SolidColorBrush x:Key="BrushDim" Color="#50657B"/>
-                <SolidColorBrush x:Key="BrushBorder" Color="#9CAFC1"/>
-                <SolidColorBrush x:Key="BrushCard" Color="#E8EFF5"/>
-                <SolidColorBrush x:Key="BrushGreen" Color="#167844"/>
-                <SolidColorBrush x:Key="BrushAmber" Color="#956000"/>
-                <SolidColorBrush x:Key="BrushRed" Color="#B72823"/>
-                <SolidColorBrush x:Key="BrushTeal" Color="#087E70"/>
-                </ResourceDictionary>
-                <ResourceDictionary x:Key="Dark">
-                <SolidColorBrush x:Key="BrushBg" Color="#0B1622"/>
-                <SolidColorBrush x:Key="BrushWhite" Color="#132A44"/>
-                <SolidColorBrush x:Key="BrushHeader" Color="#EAF1F8"/>
-                <SolidColorBrush x:Key="BrushHeaderBar" Color="#0F2540"/>
-                <SolidColorBrush x:Key="BrushBlue" Color="#3AAEEF"/>
-                <SolidColorBrush x:Key="BrushMid" Color="#B8C9DC"/>
-                <SolidColorBrush x:Key="BrushDim" Color="#8BA3BE"/>
-                <SolidColorBrush x:Key="BrushBorder" Color="#336B9E"/>
-                <SolidColorBrush x:Key="BrushCard" Color="#132A44"/>
-                <SolidColorBrush x:Key="BrushGreen" Color="#2ECC71"/>
-                <SolidColorBrush x:Key="BrushAmber" Color="#F39C12"/>
-                <SolidColorBrush x:Key="BrushRed" Color="#E74C3C"/>
-                <SolidColorBrush x:Key="BrushTeal" Color="#1ABC9C"/>
-                </ResourceDictionary>
-            </ResourceDictionary.ThemeDictionaries>
+        <Color x:Key="ColBg">#0B1622</Color>
+        <Color x:Key="ColWhite">#132A44</Color>
+        <Color x:Key="ColHeader">#EAF1F8</Color>
+        <Color x:Key="ColHeaderBar">#0F2540</Color>
+        <Color x:Key="ColBlue">#3AAEEF</Color>
+        <Color x:Key="ColMid">#B8C9DC</Color>
+        <Color x:Key="ColDim">#8BA3BE</Color>
+        <Color x:Key="ColBorder">#336B9E</Color>
+        <Color x:Key="ColCard">#132A44</Color>
+        <Color x:Key="ColGreen">#2ECC71</Color>
+        <Color x:Key="ColAmber">#F39C12</Color>
+        <Color x:Key="ColRed">#E74C3C</Color>
+        <Color x:Key="ColTeal">#1ABC9C</Color>
+
+        <SolidColorBrush x:Key="BrushBg" Color="{StaticResource ColBg}"/>
+        <SolidColorBrush x:Key="BrushWhite" Color="{StaticResource ColWhite}"/>
+        <SolidColorBrush x:Key="BrushHeader" Color="{StaticResource ColHeader}"/>
+        <SolidColorBrush x:Key="BrushHeaderBar" Color="{StaticResource ColHeaderBar}"/>
+        <SolidColorBrush x:Key="BrushBlue" Color="{StaticResource ColBlue}"/>
+        <SolidColorBrush x:Key="BrushMid" Color="{StaticResource ColMid}"/>
+        <SolidColorBrush x:Key="BrushDim" Color="{StaticResource ColDim}"/>
+        <SolidColorBrush x:Key="BrushBorder" Color="{StaticResource ColBorder}"/>
+        <SolidColorBrush x:Key="BrushCard" Color="{StaticResource ColCard}"/>
+        <SolidColorBrush x:Key="BrushGreen" Color="{StaticResource ColGreen}"/>
+        <SolidColorBrush x:Key="BrushAmber" Color="{StaticResource ColAmber}"/>
+        <SolidColorBrush x:Key="BrushRed" Color="{StaticResource ColRed}"/>
+        <SolidColorBrush x:Key="BrushTeal" Color="{StaticResource ColTeal}"/>
+
         <!-- "Noto Color Emoji" explizit statt nur über den generischen "sans-serif"-Alias zu
              hoffen: Avalonia/Skia lösen Emoji-Glyph-Fallback über eine EXPLIZIT genannte
              Schriftliste zuverlässiger auf. Nutzerfund: 🔒 (Sicherheit-Kategorie) rendert fein,
@@ -61,7 +56,6 @@
              für normalen Text, "Noto Color Emoji" bleibt als Fallback für echte Emoji-Zeichen
              erhalten (🔒/🎮-Fix von oben bleibt unverändert wirksam). -->
         <FontFamily x:Key="FontMain">Segoe UI,Tahoma,Arial,Noto Sans,Noto Color Emoji,sans-serif</FontFamily>
-        </ResourceDictionary>
     </Styles.Resources>
 
     <!-- ═══ Fenster-Grundfarben ═══════════════════════════════════════ -->
@@ -149,7 +143,7 @@
         <Setter Property="Background" Value="Transparent"/>
         <Setter Property="BorderBrush" Value="#4A6785"/>
         <Setter Property="BorderThickness" Value="1"/>
-        <Setter Property="Foreground" Value="{DynamicResource BrushHeader}"/>
+        <Setter Property="Foreground" Value="White"/>
     </Style>
     <Style Selector="Button.secondary">
         <Setter Property="Background" Value="{DynamicResource BrushCard}"/>

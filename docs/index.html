@@ -4,17 +4,17 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Universal Linux Manager — Multiboot USB Stick Manager</title>
-<meta name="description" content="Universal Linux Manager (ULM) — portabler Windows-Manager für Ventoy-Multiboot-USB-Sticks mit Linux-ISOs. Automatische Downloads, Versionschecks und Datenmüll-Schutz." id="metaDescription">
+<meta name="description" content="Universal Linux Manager (ULM) — portabler Manager für Windows und Linux für Ventoy-Multiboot-USB-Sticks mit Linux-ISOs. Automatische Downloads, Versionschecks und Datenmüll-Schutz." id="metaDescription">
 <meta property="og:type" content="website">
 <meta property="og:title" content="Universal Linux Manager — Multiboot USB Stick Manager" id="ogTitle">
-<meta property="og:description" content="ULM hält deine Ventoy-Multiboot-USB-Sticks automatisch mit den neuesten Linux-Live-ISOs aktuell. Portabel, Open Source, für Windows." id="ogDescription">
+<meta property="og:description" content="ULM hält deine Ventoy-Multiboot-USB-Sticks automatisch mit den neuesten Linux-Live-ISOs aktuell. Portabel, Open Source, für Windows und Linux." id="ogDescription">
 <meta property="og:image" content="https://zwilling10.github.io/ULM/assets/og-preview.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta property="og:url" content="https://zwilling10.github.io/ULM/">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Universal Linux Manager — Multiboot USB Stick Manager" id="twitterTitle">
-<meta name="twitter:description" content="ULM hält deine Ventoy-Multiboot-USB-Sticks automatisch mit den neuesten Linux-Live-ISOs aktuell." id="twitterDescription">
+<meta name="twitter:description" content="ULM hält deine Ventoy-Multiboot-USB-Sticks automatisch mit den neuesten Linux-Live-ISOs aktuell. Für Windows und Linux." id="twitterDescription">
 <meta name="twitter:image" content="https://zwilling10.github.io/ULM/assets/og-preview.png">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%230075BE'/%3E%3Ctext x='50' y='68' font-size='52' font-family='Segoe UI, Arial' font-weight='bold' fill='white' text-anchor='middle'%3EUL%3C/text%3E%3C/svg%3E">
 <style>
@@ -79,11 +79,20 @@
   }
   header.hero .wrap{position:relative;z-index:1;text-align:center}
   .eyebrow{
-    display:inline-flex;align-items:center;gap:8px;
+    display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:center;
     font-size:12.5px;font-weight:600;letter-spacing:.4px;color:var(--teal);
     background:rgba(26,188,156,.12);border:1px solid rgba(26,188,156,.35);
     padding:6px 14px;border-radius:999px;margin-bottom:22px;
   }
+  .badge-new{
+    display:inline-flex;align-items:center;gap:5px;
+    background:linear-gradient(135deg,var(--blue),var(--blue-deep));color:#fff;
+    padding:3px 10px;border-radius:999px;font-weight:700;letter-spacing:0;
+  }
+  .btn-linux{background:linear-gradient(135deg,#e67e22,#c8660f);color:#fff;box-shadow:0 10px 30px rgba(230,126,34,.3)}
+  .btn-linux:hover{box-shadow:0 14px 36px rgba(230,126,34,.45)}
+  .dl-os-group + .dl-os-group{margin-top:40px}
+  .dl-os-heading{display:flex;align-items:center;gap:10px;justify-content:center;font-size:17px;font-weight:700;margin-bottom:18px}
   h1{
     font-size:clamp(34px,6vw,56px);font-weight:800;letter-spacing:-1px;
     background:linear-gradient(180deg,#ffffff,#c7dcee);-webkit-background-clip:text;background-clip:text;color:transparent;
@@ -201,15 +210,17 @@
 
 <header class="hero">
   <div class="wrap">
-    <div class="eyebrow"><span class="dot"></span> <span data-i18n="hero.eyebrow">v2.40.0 · Open Source · Portabel oder installierbar</span></div>
+    <div class="eyebrow"><span class="dot"></span> <span data-i18n="hero.eyebrow">v2.41.0 · Open Source · Portabel oder installierbar</span> <span class="badge-new" data-i18n="hero.badge.linux">🆕 Neu: jetzt auch für Linux</span></div>
     <h1 data-i18n="hero.h1">Multiboot-USB-Sticks in&nbsp;Sekunden aktuell&nbsp;halten</h1>
     <p class="tagline" data-i18n="hero.tagline">ULM lädt Linux-Live-ISOs automatisch von den offiziellen Quellen, kopiert sie auf deinen Ventoy-Stick und hält den ganzen Katalog dauerhaft auf dem neuesten Stand — auch ohne konfigurierte URLs.</p>
     <div class="cta-row">
-      <a class="btn btn-primary" href="#download" data-i18n="hero.cta.download">⬇ Download für Windows</a>
+      <a class="btn btn-primary" href="#download" data-i18n="hero.cta.download">🪟 Download für Windows</a>
+      <a class="btn btn-linux" href="#download" data-i18n="hero.cta.downloadLinux">🐧 Download für Linux</a>
       <a class="btn btn-ghost" href="https://github.com/zwilling10/ULM" target="_blank" rel="noopener" data-i18n="hero.cta.source">Quellcode auf GitHub</a>
     </div>
     <div class="meta-row">
       <span><span class="dot"></span> Windows 10 / 11 (x64)</span>
+      <span><span class="dot" style="background:#e67e22"></span> Linux (x86_64)</span>
       <span data-i18n="hero.meta.noinstall">Keine Installation nötig</span>
       <span data-i18n="hero.meta.nonet">Keine .NET-Runtime nötig</span>
       <span data-i18n="hero.meta.mit">MIT-lizenziert</span>
@@ -306,8 +317,9 @@
     </div>
     <div class="tech-row">
       <div class="tech-badge"><span class="dot2" style="background:#0075be"></span> .NET 8</div>
-      <div class="tech-badge"><span class="dot2" style="background:#27ae60"></span> C# / WPF</div>
-      <div class="tech-badge"><span class="dot2" style="background:#e67e22"></span> MVVM</div>
+      <div class="tech-badge"><span class="dot2" style="background:#27ae60"></span> C# / WPF (Windows)</div>
+      <div class="tech-badge"><span class="dot2" style="background:#e67e22"></span> Avalonia (Linux)</div>
+      <div class="tech-badge"><span class="dot2" style="background:#8e44ad"></span> MVVM</div>
       <div class="tech-badge"><span class="dot2" style="background:#1abc9c"></span> Ventoy</div>
     </div>
   </div>
@@ -317,24 +329,44 @@
   <div class="wrap">
     <div class="dl-panel">
       <h2 data-i18n="dl.h2">Jetzt herunterladen</h2>
-      <p data-i18n="dl.p">Neueste Version von GitHub Releases — zwei Varianten zur Wahl.</p>
+      <p data-i18n="dl.p">Neueste Version von GitHub Releases — für Windows und Linux verfügbar.</p>
       <a class="btn btn-primary" href="https://github.com/zwilling10/ULM/releases/latest" target="_blank" rel="noopener" data-i18n="dl.cta">⬇ Neueste Version herunterladen</a>
-      <div class="grid" style="margin-top:34px;text-align:left">
-        <div class="card">
-          <div class="ic ic-teal">📦</div>
-          <h3>Portable EXE</h3>
-          <p data-i18n="dl.c1.p">Eine einzige Datei, kein Installer, keine Adminrechte nötig. Herunterladen und direkt starten — auch vom USB-Stick.</p>
+
+      <div class="dl-os-group" style="margin-top:40px">
+        <div class="dl-os-heading">🪟 <span data-i18n="dl.win.heading">Windows</span></div>
+        <div class="grid" style="text-align:left">
+          <div class="card">
+            <div class="ic ic-teal">📦</div>
+            <h3>Portable EXE</h3>
+            <p data-i18n="dl.c1.p">Eine einzige Datei, kein Installer, keine Adminrechte nötig. Herunterladen und direkt starten — auch vom USB-Stick.</p>
+          </div>
+          <div class="card">
+            <div class="ic ic-blue">🛠</div>
+            <h3>Setup.exe</h3>
+            <p data-i18n="dl.c2.p">Klassischer Installer mit Startmenü-Eintrag und Deinstaller. Windows SmartScreen zeigt beim ersten Start eine „Unbekannter Herausgeber“-Warnung (kein kostenpflichtiges Code-Signing-Zertifikat) — über „Weitere Informationen“ → „Trotzdem ausführen“ starten.</p>
+          </div>
         </div>
-        <div class="card">
-          <div class="ic ic-blue">🛠</div>
-          <h3>Setup.exe</h3>
-          <p data-i18n="dl.c2.p">Klassischer Installer mit Startmenü-Eintrag und Deinstaller. Windows SmartScreen zeigt beim ersten Start eine „Unbekannter Herausgeber“-Warnung (kein kostenpflichtiges Code-Signing-Zertifikat) — über „Weitere Informationen“ → „Trotzdem ausführen“ starten.</p>
+        <div class="req-list">
+          <span>✔ Windows 10 / 11 (x64)</span>
+          <span>✔ ~70&nbsp;MB</span>
+          <span data-i18n="dl.req3">✔ Kein Administrator nötig (außer für Ventoy-Setup)</span>
         </div>
       </div>
-      <div class="req-list">
-        <span>✔ Windows 10 / 11 (x64)</span>
-        <span>✔ ~70&nbsp;MB</span>
-        <span data-i18n="dl.req3">✔ Kein Administrator nötig (außer für Ventoy-Setup)</span>
+
+      <div class="dl-os-group">
+        <div class="dl-os-heading">🐧 <span data-i18n="dl.linux.heading">Linux</span></div>
+        <div class="grid" style="text-align:left">
+          <div class="card">
+            <div class="ic ic-amber">📦</div>
+            <h3 data-i18n="dl.c3.h">Portable Linux-Binary</h3>
+            <p data-i18n="dl.c3.p">Eine einzige self-contained Datei, kein Paketmanager, keine .NET-Installation nötig. Herunterladen, mit „chmod +x“ ausführbar machen und starten — auch vom USB-Stick.</p>
+          </div>
+        </div>
+        <div class="req-list">
+          <span>✔ Linux x86_64 (jede aktuelle Distribution)</span>
+          <span>✔ ~11&nbsp;MB</span>
+          <span data-i18n="dl.reqLinux">✔ Kein root nötig (außer für Ventoy-Einrichtung)</span>
+        </div>
       </div>
     </div>
   </div>
@@ -363,6 +395,10 @@
         <h3 data-i18n="faq.q4.h">Benötige ich Administratorrechte?</h3>
         <p data-i18n="faq.q4.p">Für die normale Nutzung nein. Nur beim Einrichten oder Aktualisieren von Ventoy auf einem Stick fragt Windows einmalig per UAC nach — der Rest von ULM läuft mit normalen Benutzerrechten.</p>
       </div>
+      <div class="card">
+        <h3 data-i18n="faq.q5.h">Gibt es ULM auch für Linux?</h3>
+        <p data-i18n="faq.q5.p">Ja. Seit v2.41.0 gibt es eine native Linux-Version mit denselben Kernfunktionen (automatische Downloads, Ventoy-Integration, Gesundheitscheck) — als portable, self-contained Binärdatei ohne Paketmanager oder .NET-Installation.</p>
+      </div>
     </div>
   </div>
 </section>
@@ -387,13 +423,15 @@
     "nav.distros": { de: "Distros", en: "Distros" },
     "nav.faq": { de: "FAQ", en: "FAQ" },
     "nav.download": { de: "Download", en: "Download" },
-    "hero.eyebrow": { de: "v2.40.0 · Open Source · Portabel oder installierbar", en: "v2.40.0 · Open Source · Portable or installable" },
+    "hero.eyebrow": { de: "v2.41.0 · Open Source · Portabel oder installierbar", en: "v2.41.0 · Open Source · Portable or installable" },
+    "hero.badge.linux": { de: "🆕 Neu: jetzt auch für Linux", en: "🆕 New: now also for Linux" },
     "hero.h1": { de: "Multiboot-USB-Sticks in&nbsp;Sekunden aktuell&nbsp;halten", en: "Keep multiboot USB&nbsp;sticks up to&nbsp;date in seconds" },
     "hero.tagline": {
       de: "ULM lädt Linux-Live-ISOs automatisch von den offiziellen Quellen, kopiert sie auf deinen Ventoy-Stick und hält den ganzen Katalog dauerhaft auf dem neuesten Stand — auch ohne konfigurierte URLs.",
       en: "ULM automatically downloads Linux live ISOs from official sources, copies them to your Ventoy stick, and keeps the whole catalog permanently up to date — even without configured URLs."
     },
-    "hero.cta.download": { de: "⬇ Download für Windows", en: "⬇ Download for Windows" },
+    "hero.cta.download": { de: "🪟 Download für Windows", en: "🪟 Download for Windows" },
+    "hero.cta.downloadLinux": { de: "🐧 Download für Linux", en: "🐧 Download for Linux" },
     "hero.cta.source": { de: "Quellcode auf GitHub", en: "Source code on GitHub" },
     "hero.meta.noinstall": { de: "Keine Installation nötig", en: "No installation required" },
     "hero.meta.nonet": { de: "Keine .NET-Runtime nötig", en: "No .NET runtime required" },
@@ -466,8 +504,10 @@
     "tech.h2": { de: "Gebaut mit", en: "Built with" },
 
     "dl.h2": { de: "Jetzt herunterladen", en: "Download now" },
-    "dl.p": { de: "Neueste Version von GitHub Releases — zwei Varianten zur Wahl.", en: "Latest version from GitHub Releases — two options available." },
+    "dl.p": { de: "Neueste Version von GitHub Releases — für Windows und Linux verfügbar.", en: "Latest version from GitHub Releases — available for Windows and Linux." },
     "dl.cta": { de: "⬇ Neueste Version herunterladen", en: "⬇ Download latest version" },
+    "dl.win.heading": { de: "Windows", en: "Windows" },
+    "dl.linux.heading": { de: "Linux", en: "Linux" },
     "dl.c1.p": {
       de: "Eine einzige Datei, kein Installer, keine Adminrechte nötig. Herunterladen und direkt starten — auch vom USB-Stick.",
       en: "A single file, no installer, no admin rights required. Download and run directly — even from the USB stick."
@@ -477,6 +517,12 @@
       en: "Classic installer with a Start Menu entry and uninstaller. Windows SmartScreen shows an “Unknown publisher” warning on first run (no paid code-signing certificate) — start via “More info” → “Run anyway”."
     },
     "dl.req3": { de: "✔ Kein Administrator nötig (außer für Ventoy-Setup)", en: "✔ No administrator required (except for Ventoy setup)" },
+    "dl.c3.h": { de: "Portable Linux-Binary", en: "Portable Linux binary" },
+    "dl.c3.p": {
+      de: "Eine einzige self-contained Datei, kein Paketmanager, keine .NET-Installation nötig. Herunterladen, mit „chmod +x“ ausführbar machen und starten — auch vom USB-Stick.",
+      en: "A single self-contained file, no package manager, no .NET installation required. Download, make executable with “chmod +x” and run — even from the USB stick."
+    },
+    "dl.reqLinux": { de: "✔ Kein root nötig (außer für Ventoy-Einrichtung)", en: "✔ No root required (except for Ventoy setup)" },
 
     "faq.kicker": { de: "FAQ", en: "FAQ" },
     "faq.h2": { de: "Häufige Fragen", en: "Frequently asked questions" },
@@ -499,19 +545,24 @@
     "faq.q4.p": {
       de: "Für die normale Nutzung nein. Nur beim Einrichten oder Aktualisieren von Ventoy auf einem Stick fragt Windows einmalig per UAC nach — der Rest von ULM läuft mit normalen Benutzerrechten.",
       en: "Not for normal use. Windows only asks once via UAC when setting up or updating Ventoy on a stick — the rest of ULM runs with regular user rights."
+    },
+    "faq.q5.h": { de: "Gibt es ULM auch für Linux?", en: "Is ULM available for Linux too?" },
+    "faq.q5.p": {
+      de: "Ja. Seit v2.41.0 gibt es eine native Linux-Version mit denselben Kernfunktionen (automatische Downloads, Ventoy-Integration, Gesundheitscheck) — als portable, self-contained Binärdatei ohne Paketmanager oder .NET-Installation.",
+      en: "Yes. Since v2.41.0 there's a native Linux version with the same core features (automatic downloads, Ventoy integration, health check) — as a portable, self-contained binary with no package manager or .NET installation required."
     }
   };
 
   var pageMeta = {
     de: {
       title: "Universal Linux Manager — Multiboot USB Stick Manager",
-      description: "Universal Linux Manager (ULM) — portabler Windows-Manager für Ventoy-Multiboot-USB-Sticks mit Linux-ISOs. Automatische Downloads, Versionschecks und Datenmüll-Schutz.",
-      ogDescription: "ULM hält deine Ventoy-Multiboot-USB-Sticks automatisch mit den neuesten Linux-Live-ISOs aktuell. Portabel, Open Source, für Windows."
+      description: "Universal Linux Manager (ULM) — portabler Manager für Windows und Linux für Ventoy-Multiboot-USB-Sticks mit Linux-ISOs. Automatische Downloads, Versionschecks und Datenmüll-Schutz.",
+      ogDescription: "ULM hält deine Ventoy-Multiboot-USB-Sticks automatisch mit den neuesten Linux-Live-ISOs aktuell. Portabel, Open Source, für Windows und Linux."
     },
     en: {
       title: "Universal Linux Manager — Multiboot USB Stick Manager",
-      description: "Universal Linux Manager (ULM) — portable Windows manager for Ventoy multiboot USB sticks with Linux ISOs. Automatic downloads, version checks, and junk-file protection.",
-      ogDescription: "ULM automatically keeps your Ventoy multiboot USB sticks up to date with the latest Linux live ISOs. Portable, open source, for Windows."
+      description: "Universal Linux Manager (ULM) — portable manager for Windows and Linux for Ventoy multiboot USB sticks with Linux ISOs. Automatic downloads, version checks, and junk-file protection.",
+      ogDescription: "ULM automatically keeps your Ventoy multiboot USB sticks up to date with the latest Linux live ISOs. Portable, open source, for Windows and Linux."
     }
   };
 

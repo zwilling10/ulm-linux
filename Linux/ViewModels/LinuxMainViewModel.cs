@@ -40,7 +40,14 @@ namespace ULM.Linux.ViewModels
             Drives = new ObservableCollection<LinuxBlockDevice>();
             RebuildCategories();
 
-            RefreshCommand        = new RelayCommand(Refresh);
+            // BUGFIX (Nutzerfund: Katalog leert sich nach Klick auf "Aktualisieren" waehrend eines
+            // laufenden Online-Scans): Refresh() ruft _db.Load() auf, das die von
+            // TriggerAutoVersionCheckAsync/RunHealthCheckAsync gerade iterierte/gespeicherte
+            // Entries-Liste mitten im Scan leert und neu befuellt -- ein torn read auf die INI-
+            // Datei waehrend eines parallelen _db.Save() aus dem Scan kann dabei eine (fast) leere
+            // Datei zurueckliefern. Jeder andere Scan-ausloesende Befehl hat bereits eine
+            // !IsBusy/!HealthCheckActive-Absicherung; hier fehlte sie komplett.
+            RefreshCommand        = new RelayCommand(Refresh, () => !IsBusy && !HealthCheckActive && !OnlineScanActive);
             ToggleLanguageCommand = new RelayCommand(ToggleLanguage);
             // Windows-Pendant: kein gebundenes DownloadCommand — BtnDownload_Click im Code-behind
             // (MainWindow.axaml.cs) klärt die Dialogkette (Kopiermodus/Freispeicher/Slots) und ruft
@@ -50,16 +57,14 @@ namespace ULM.Linux.ViewModels
             // DownloadWorker, die laufende Kopier-Pipeline (_pipelineCopyCts, siehe
             // DownloadQueueAsync) war nie erreichbar. Beide Phasen jetzt hier abgedeckt.
             CancelDownloadCommand  = new RelayCommand(
-                () => { _activeDownloadWorker?.Cancel(); _pipelineCopyCts?.Cancel(); _integrityCts?.Cancel(); },
-                () => IsBusy && (_activeDownloadWorker is not null || _pipelineCopyCts is not null || _integrityCts is not null));
+                () => { _activeDownloadWorker?.Cancel(); _pipelineCopyCts?.Cancel(); },
+                () => IsBusy && (_activeDownloadWorker is not null || _pipelineCopyCts is not null));
             RequestFasterMirrorCommand = new RelayCommand<string>(name => { if (name is not null) _activeDownloadWorker?.RequestFasterMirror(name); });
             CopyToStickCommand     = new RelayCommand(() => _ = CopySelectedToStickAsync(), () => SelectedRow is not null && SelectedDrive is not null && !IsBusy);
             RequestVentoyInstallCommand = new RelayCommand(() => RequestVentoyConfirmation(updateMode: false), () => SelectedDrive is not null && !IsBusy);
             RequestVentoyUpdateCommand  = new RelayCommand(() => RequestVentoyConfirmation(updateMode: true),  () => SelectedDrive is not null && !IsBusy);
             ConfirmVentoyCommand   = new RelayCommand(() => _ = ConfirmVentoyAsync(), () => PendingConfirmationMessage is not null && !IsBusy);
             CancelVentoyCommand    = new RelayCommand(() => PendingConfirmationMessage = null, () => PendingConfirmationMessage is not null);
-            CatchUpCopiesCommand = new RelayCommand(() => _ = CheckMissingOnStickAsync(), () => SelectedDrive?.MountPoint is not null && !IsBusy);
-            ClearActivityHistoryCommand = new RelayCommand(() => ActivityHistory.Clear());
             ClearLogCommand        = new RelayCommand(() => LogEntries.Clear());
             RunHealthCheckCommand  = new RelayCommand(() => _ = RunHealthCheckAsync(), () => !IsBusy && !HealthCheckActive);
             VerifyIntegrityCommand = new RelayCommand(() => _ = VerifyStickIntegrityAsync(), () => SelectedDrive is not null && !IsBusy);
@@ -74,6 +79,7 @@ namespace ULM.Linux.ViewModels
             // "Duplikat-Schutz" prüfen/nachrüsten. _db ist zu diesem Zeitpunkt bereits geladen
             // (App.axaml.cs ruft IsoDatabaseService.Instance.Load() VOR diesem Konstruktor).
             DeduplicateEntries();
+            NormalizeEntryNames();
             ApplyFilter();
         }
 
@@ -147,7 +153,6 @@ namespace ULM.Linux.ViewModels
         {
             CancelDownloadCommand.RaiseCanExecuteChanged();
             CopyToStickCommand.RaiseCanExecuteChanged();
-            CatchUpCopiesCommand.RaiseCanExecuteChanged();
             RequestVentoyInstallCommand.RaiseCanExecuteChanged();
             RequestVentoyUpdateCommand.RaiseCanExecuteChanged();
             ConfirmVentoyCommand.RaiseCanExecuteChanged();
@@ -155,6 +160,7 @@ namespace ULM.Linux.ViewModels
             VerifyIntegrityCommand.RaiseCanExecuteChanged();
             CheckUpdatesCommand.RaiseCanExecuteChanged();
             CheckUrlsCommand.RaiseCanExecuteChanged();
+            RefreshCommand.RaiseCanExecuteChanged();
         }
 
         private int _downloadPercent;
@@ -180,58 +186,6 @@ namespace ULM.Linux.ViewModels
         /// fertig) — derselbe Bug, der schon einmal für den (inzwischen ersetzten) Batch-Kopier-Pfad
         /// gefunden und behoben wurde (Nutzerfund 2026-09-04, siehe CancelDownloadCommand-Kommentar).</summary>
         private CancellationTokenSource? _pipelineCopyCts;
-        private CancellationTokenSource? _integrityCts;
-        public ObservableCollection<string> ActivityHistory { get; } = new();
-        public RelayCommand ClearActivityHistoryCommand { get; }
-        public RelayCommand CatchUpCopiesCommand { get; }
-        private bool _isExpertMode = true;
-        public bool IsExpertMode { get => _isExpertMode; set => SetField(ref _isExpertMode, value); }
-        private string Localized(string de, string en) => LocalizationService.Current == AppLanguage.German ? de : en;
-        public string ActionCatchUpCopiesLabel => Localized("Fehlende ISOs nachkopieren", "Copy missing ISOs");
-        public string ActionManualSourceLabel => Localized("Quelle reparieren", "Repair source");
-        public string ActivityHistoryLabel => Localized("Aktivitätsverlauf", "Activity history");
-        public string ClearActivityHistoryLabel => Localized("Verlauf löschen", "Clear history");
-        public string ActionChangelogLabel => Localized("Änderungsverlauf", "Changelog");
-        public event Action<List<IsoEntry>, string>? MissingOnStickDetected;
-        public event Action<List<UsbService.StickIso>, string>? IncompleteIsosOnStickDetected;
-        public event Action<string>? DownloadItemFailed;
-        private readonly HashSet<string> _copyOfferedKeys = new(StringComparer.OrdinalIgnoreCase);
-        private readonly HashSet<string> _incompleteStickIsoOfferedKeys = new(StringComparer.OrdinalIgnoreCase);
-        public bool MarkCopyOffered(string drive, string filename) => _copyOfferedKeys.Add($"{drive}|{filename}");
-        public bool MarkIncompleteStickIsoOffered(string drive, string filename) => _incompleteStickIsoOfferedKeys.Add($"{drive}|{filename}");
-        public List<IsoEntry> GetVerifiedCompleteEntriesMissingFromStick() => _db.Entries
-            .Where(e => e.IsLocallyAvailable(_downloadDirectory) && e.UsbStatus != UsbStatus.Ok).ToList();
-        public void OfferMissingLocalCopiesForSelectedDrive()
-        {
-            if (SelectedDrive?.MountPoint is not string mountPoint) return;
-            var missing = GetVerifiedCompleteEntriesMissingFromStick();
-            if (missing.Count > 0) MissingOnStickDetected?.Invoke(missing, mountPoint);
-        }
-        public async Task CheckMissingOnStickAsync()
-        {
-            if (SelectedDrive?.MountPoint is not string mount || IsBusy) return;
-            await ScanConnectedStickAsync(mount);
-        }
-        public async Task CopyEntriesToStickAsync(List<IsoEntry> entries, string mountPoint, bool deleteAfter = false)
-        {
-            if (IsBusy || !System.IO.Directory.Exists(mountPoint)) return;
-            var queue = entries.Where(e => e.IsLocallyAvailable(_downloadDirectory)).ToList();
-            if (queue.Count == 0) return;
-            _pipelineCopyCts = new CancellationTokenSource();
-            IsBusy = true;
-            try
-            {
-                var channel = System.Threading.Channels.Channel.CreateUnbounded<IsoEntry>();
-                foreach (var entry in queue) channel.Writer.TryWrite(entry);
-                channel.Writer.TryComplete();
-                var (ok, failed) = await RunPipelineCopyConsumerAsync(channel.Reader, mountPoint, deleteAfter, _pipelineCopyCts.Token);
-                CopyStatus = Localized($"{ok} kopiert, {failed} fehlgeschlagen.", $"{ok} copied, {failed} failed.");
-                UsbService.UpdateVentoyMenu(mountPoint, _db.Entries);
-                CopyBatchCompleted?.Invoke(ok);
-            }
-            finally { _pipelineCopyCts.Dispose(); _pipelineCopyCts = null; IsBusy = false; }
-        }
-
 
 
         // ── Für das Windows-parallele DownloadProgressDialog im Code-behind (braucht ein Owner-
@@ -278,20 +232,18 @@ namespace ULM.Linux.ViewModels
         public bool OnlineScanActive
         {
             get => _onlineScanActive;
-            private set { if (SetField(ref _onlineScanActive, value)) { OnPropertyChanged(nameof(ScanInProgress)); OnPropertyChanged(nameof(ScanHintText)); } }
+            private set { if (SetField(ref _onlineScanActive, value)) { OnPropertyChanged(nameof(ScanInProgress)); OnPropertyChanged(nameof(ScanHintText)); OnPropertyChanged(nameof(StartupHintText)); OnPropertyChanged(nameof(StartupHintPercent)); RefreshCommand.RaiseCanExecuteChanged(); } }
         }
 
         private int _onlineScanPercent;
         public int OnlineScanPercent
         {
             get => _onlineScanPercent;
-            private set { if (SetField(ref _onlineScanPercent, value)) OnPropertyChanged(nameof(ScanHintFullText)); }
+            private set { if (SetField(ref _onlineScanPercent, value)) { OnPropertyChanged(nameof(ScanHintFullText)); OnPropertyChanged(nameof(StartupHintPercent)); } }
         }
 
         // ── Automatische USB-Stick-Erkennung (Windows-Pendant: MainViewModel.UsbScanActive) —
         // läuft, sobald PollDrivesAsync einen Ventoy-Stick neu auswählt (siehe ScanConnectedStickAsync).
-        // Kein Prozentwert (Windows nutzt hier ebenfalls eine unbestimmte ProgressBar), daher kein
-        // eigenes *Percent-Feld. ──
         private bool _usbScanActive;
         public bool UsbScanActive
         {
@@ -299,15 +251,58 @@ namespace ULM.Linux.ViewModels
             private set { if (SetField(ref _usbScanActive, value)) { OnPropertyChanged(nameof(ScanInProgress)); OnPropertyChanged(nameof(ScanHintText)); OnPropertyChanged(nameof(ScanHintFullText)); } }
         }
 
+        // Nutzerwunsch (2026-09-17): eigenständiges, nicht-blockierendes "Bitte Geduld"-Popup
+        // während des Stick-Scans (analog zum blockierenden Start-Popup, siehe StartupCheckDialog)
+        // — dafür jetzt eine echte Prozentangabe statt nur einer unbestimmten Anzeige. Fortschritt
+        // kommt aus UsbService.ScanStickVerifiedAsync's onProgress-Callback (ein Tick pro online
+        // geprüfter Datei auf dem Stick).
+        private int _usbScanPercent;
+        public int UsbScanPercent
+        {
+            get => _usbScanPercent;
+            private set { if (SetField(ref _usbScanPercent, value)) OnPropertyChanged(nameof(ScanHintFullText)); }
+        }
+
         public bool ScanInProgress => OnlineScanActive || UsbScanActive;
         public string ScanHintText => OnlineScanActive ? LocalizationService.T(Str.Main_ScanHint_Online)
                                      : UsbScanActive     ? LocalizationService.T(Str.Main_ScanHint_Usb)
                                      : string.Empty;
 
-        /// <summary>Fertig formatierter Kopfzeilen-Hinweis inkl. Prozentangabe NUR während des
-        /// Online-Scans (der Stick-Scan hat keinen Fortschrittswert, daher dort kein "(NN%)"-Anhang,
-        /// der sonst einen veralteten Online-Scan-Prozentwert fälschlich mit anzeigen würde).</summary>
-        public string ScanHintFullText => OnlineScanActive ? $"{ScanHintText} ({OnlineScanPercent}%)" : ScanHintText;
+        /// <summary>Fertig formatierter Kopfzeilen-Hinweis inkl. Prozentangabe — seit Einführung von
+        /// UsbScanPercent (2026-09-17) auch für den Stick-Scan verfügbar, nicht mehr nur für den
+        /// Online-Scan.</summary>
+        public string ScanHintFullText => OnlineScanActive ? $"{ScanHintText} ({OnlineScanPercent}%)"
+                                         : UsbScanActive     ? $"{ScanHintText} ({UsbScanPercent}%)"
+                                         : ScanHintText;
+
+        // ── URL-Check als zweite Phase des Start-Checks (Nutzerwunsch 2026-09-16: "URLs prüfen"
+        // soll im selben Bitte-warten-Fenster mit eigenem Fortschritt durchlaufen, nicht nur der
+        // Versionscheck). UrlCheckWorker liefert bereits ProgressPercent — CheckUrlsAsync() nutzte
+        // das bisher nicht, da nur der manuelle "URLs prüfen"-Button diese Methode aufrief und dort
+        // kein eigener Fortschrittsbalken existierte. ──
+        private bool _urlCheckActive;
+        public bool UrlCheckActive
+        {
+            get => _urlCheckActive;
+            private set { if (SetField(ref _urlCheckActive, value)) { OnPropertyChanged(nameof(StartupHintText)); OnPropertyChanged(nameof(StartupHintPercent)); } }
+        }
+
+        private int _urlCheckPercent;
+        public int UrlCheckPercent
+        {
+            get => _urlCheckPercent;
+            private set { if (SetField(ref _urlCheckPercent, value)) OnPropertyChanged(nameof(StartupHintPercent)); }
+        }
+
+        /// <summary>Kombinierter Text/Fortschritt für StartupCheckDialog — deckt beide Phasen des
+        /// Start-Checks ab (erst Versionscheck, dann URL-Check), ohne dass der Dialog selbst
+        /// zwischen ihnen unterscheiden muss.</summary>
+        public string StartupHintText => OnlineScanActive ? ScanHintText
+                                        : UrlCheckActive   ? LocalizationService.T(Str.Log_CheckingUrls)
+                                        : string.Empty;
+        public int StartupHintPercent => OnlineScanActive ? OnlineScanPercent
+                                        : UrlCheckActive   ? UrlCheckPercent
+                                        : 100;
 
         private bool _secureBootEnabled;
         public bool SecureBootEnabled
@@ -441,7 +436,7 @@ namespace ULM.Linux.ViewModels
         public bool HealthCheckActive
         {
             get => _healthCheckActive;
-            private set { if (SetField(ref _healthCheckActive, value)) RunHealthCheckCommand.RaiseCanExecuteChanged(); }
+            private set { if (SetField(ref _healthCheckActive, value)) { RunHealthCheckCommand.RaiseCanExecuteChanged(); RefreshCommand.RaiseCanExecuteChanged(); } }
         }
 
         private int _healthCheckPercent;
@@ -462,8 +457,6 @@ namespace ULM.Linux.ViewModels
         {
             if (string.IsNullOrWhiteSpace(line)) return;
             LogEntries.Add(line);
-            ActivityHistory.Insert(0, $"{DateTime.Now:HH:mm:ss} {line}");
-            while (ActivityHistory.Count > 30) ActivityHistory.RemoveAt(ActivityHistory.Count - 1);
         }
 
         /// <summary>Windows-Pendant: MainViewModel.ApplyResolvedUpdatesAndOfferStickUpdate() — übernimmt
@@ -477,24 +470,78 @@ namespace ULM.Linux.ViewModels
         /// spontanes Stick-Update-Angebot vorhanden, reiner Katalog-Übernahme-Teil.</summary>
         internal void ApplyResolvedUpdates(List<int> updates, bool anyUrlDiscovered)
         {
+            var offerForDownload = new List<IsoEntry>();
             foreach (int i in updates)
             {
                 if (i < 0 || i >= _db.Entries.Count) continue;
                 var e = _db.Entries[i]; if (string.IsNullOrEmpty(e.RemoteUrl)) continue;
-                string oldVer = HttpService.ExtractVersion(e.Filename);
-                if (string.IsNullOrEmpty(oldVer)) oldVer = HttpService.ExtractVersion(e.Name);
+                // Nutzerwunsch (2026-09-16): ist die BISHERIGE Version bereits lokal oder auf dem
+                // zuletzt gescannten Stick vorhanden, die neu gefundene gleich zum Download anbieten
+                // (siehe UpdatesAvailableForDownload unten) — MUSS vor dem Überschreiben von
+                // e.Filename geprüft werden, sonst würde IsAvailableAnywhere() faelschlich gegen
+                // die neue, garantiert noch nie heruntergeladene Datei pruefen.
+                if (e.IsAvailableAnywhere(_downloadDirectory)) offerForDownload.Add(e);
+                // BUGFIX (Nutzerfund: Katalog-Name bei CachyOS/EndeavourOS aktualisiert sich nie):
+                // die alte Fassung suchte die aus dem DATEINAMEN extrahierte Version im NAMEN --
+                // bei Distros, deren Katalog-Name die Version in einem anderen Format traegt als
+                // der Dateiname (CachyOS: Name "2026.03" vs. Dateiname "260308", EndeavourOS:
+                // "2026.03" vs. "2026.03.06"), kam dieser Teilstring im Namen nie vor -- IndexOf
+                // schlug fehl, die Umbenennung wurde fuer immer stillschweigend uebersprungen
+                // (Url/Filename wurden trotzdem korrekt aktualisiert, nur der Name blieb stehen).
+                // Jetzt wird die Version aus dem NAMEN selbst extrahiert (garantiert im Namen
+                // vorhanden) und genau die ersetzt.
+                string nameVer = HttpService.ExtractVersion(e.Name);
                 string newVer = string.IsNullOrEmpty(e.RemoteVersion) ? HttpService.ExtractVersion(e.RemoteFilename) : e.RemoteVersion;
                 e.Url = e.RemoteUrl; e.Filename = e.RemoteFilename;
                 e.UpdateAvailable = false;
-                if (!string.IsNullOrEmpty(oldVer) && !string.IsNullOrEmpty(newVer) && oldVer != newVer)
+                if (!string.IsNullOrEmpty(nameVer) && !string.IsNullOrEmpty(newVer) && nameVer != newVer)
                 {
-                    int pos = e.Name.IndexOf(oldVer, StringComparison.Ordinal);
-                    if (pos >= 0) { string on = e.Name; e.Name = e.Name[..pos] + newVer + e.Name[(pos + oldVer.Length)..]; AppendLog(string.Format(LocalizationService.T(Str.Log_NameUpdated), on, e.Name)); }
+                    int pos = e.Name.IndexOf(nameVer, StringComparison.Ordinal);
+                    if (pos >= 0) { string on = e.Name; e.Name = e.Name[..pos] + newVer + e.Name[(pos + nameVer.Length)..]; AppendLog(string.Format(LocalizationService.T(Str.Log_NameUpdated), on, e.Name)); }
                 }
             }
             if (updates.Count > 0) { _db.Save(); AppendLog(string.Format(LocalizationService.T(Str.Log_DbNewVersionsSaved), updates.Count)); }
             else if (anyUrlDiscovered) { _db.Save(); AppendLog(LocalizationService.T(Str.Log_DbNewSourcesSaved)); }
-            if (DeduplicateEntries() > 0) ApplyFilter();
+            bool namesNormalized = NormalizeEntryNames() > 0;
+            if (DeduplicateEntries() > 0 || namesNormalized) ApplyFilter();
+            if (offerForDownload.Count > 0) UpdatesAvailableForDownload?.Invoke(offerForDownload);
+        }
+
+        /// <summary>Nutzerwunsch (2026-09-16): MainWindow.axaml.cs bietet bei mindestens einem
+        /// bereits lokal/auf dem Stick vorhandenen Eintrag mit gefundenem Update sofort den
+        /// Download an (Ja/Nein-Rückfrage, danach derselbe Ablauf wie der Download-Button).</summary>
+        public event Action<List<IsoEntry>>? UpdatesAvailableForDownload;
+
+        /// <summary>Selbstheilung für Katalog-Einträge, deren Anzeige-Name eine ANDERE Versions-
+        /// Zeichenfolge trägt als der maßgebliche Dateiname — z.B. ein Tippfehler in der
+        /// mitgelieferten Standard-Datenbank (Dr.Web LiveDisk zeigte "9.0.1", tatsächliche Datei
+        /// war "900") oder ein Distro mit inkompatiblem Namens-/Dateinamen-Versionsformat
+        /// (CachyOS "2026.03" vs. Dateiname "260308"). Nutzerfund (2026-09-15): Dr.Web blieb auf
+        /// "9.0.1" hängen, obwohl die DefaultDatabase längst auf "9.0.0" korrigiert war — greift
+        /// nur bei einer BRANDNEUEN Datenbank (LoadDefaults(), siehe TipEn-Präzedenzfall/
+        /// BackfillMissingTipEn), nicht bei einer bereits vorhandenen Nutzer-ulm_isos.ini. Da
+        /// Dr.Web schon "aktuell" ist (kein echtes Update gefunden), lief die Umbenennung in
+        /// ApplyResolvedUpdates nie (die läuft nur für echte Update-Funde). Bewusst NICHT für
+        /// ImportedFromStick-Einträge (deren Name-Konvention der Nutzer/Stick-Fund bestimmt, nicht
+        /// der kuratierte Katalog).</summary>
+        private int NormalizeEntryNames()
+        {
+            int changed = 0;
+            foreach (var e in _db.Entries)
+            {
+                if (e.ImportedFromStick || string.IsNullOrWhiteSpace(e.Filename)) continue;
+                string nameVer = HttpService.ExtractVersion(e.Name);
+                string fileVer = HttpService.ExtractVersion(e.Filename);
+                if (string.IsNullOrEmpty(nameVer) || string.IsNullOrEmpty(fileVer) || nameVer == fileVer) continue;
+                int pos = e.Name.IndexOf(nameVer, StringComparison.Ordinal);
+                if (pos < 0) continue;
+                string on = e.Name;
+                e.Name = e.Name[..pos] + fileVer + e.Name[(pos + nameVer.Length)..];
+                AppendLog(string.Format(LocalizationService.T(Str.Log_NameUpdated), on, e.Name));
+                changed++;
+            }
+            if (changed > 0) _db.Save();
+            return changed;
         }
 
         /// <summary>Windows-Pendant: MainViewModel.DeduplicateEntries() — 1:1 dieselbe Logik über
@@ -535,12 +582,16 @@ namespace ULM.Linux.ViewModels
                     .FirstOrDefault();
                 if (newerDup != null)
                 {
-                    string oldVer = HttpService.ExtractVersion(string.IsNullOrWhiteSpace(keeper.Filename) ? keeper.Name : keeper.Filename);
                     string newVer = HttpService.ExtractVersion(newerDup.Filename);
                     string oldName = keeper.Name;
                     keeper.Filename = newerDup.Filename;
-                    if (!string.IsNullOrEmpty(oldVer) && !string.IsNullOrEmpty(newVer) && oldVer != newVer)
-                    { int pos = keeper.Name.IndexOf(oldVer, StringComparison.Ordinal); if (pos >= 0) keeper.Name = keeper.Name[..pos] + newVer + keeper.Name[(pos + oldVer.Length)..]; }
+                    // BUGFIX: siehe ApplyResolvedUpdates oben -- fuer die Textersetzung im Namen die
+                    // dort tatsaechlich vorkommende Version verwenden (nicht die Filename-Version,
+                    // die z.B. bei CachyOS/EndeavourOS in einem anderen Format vorliegt und im Namen
+                    // nie gefunden wuerde).
+                    string nameVer = HttpService.ExtractVersion(keeper.Name);
+                    if (!string.IsNullOrEmpty(nameVer) && !string.IsNullOrEmpty(newVer) && nameVer != newVer)
+                    { int pos = keeper.Name.IndexOf(nameVer, StringComparison.Ordinal); if (pos >= 0) keeper.Name = keeper.Name[..pos] + newVer + keeper.Name[(pos + nameVer.Length)..]; }
                     AppendLog(string.Format(LocalizationService.T(Str.Log_Merged), oldName, keeper.Name, keeper.Filename));
                 }
 
@@ -565,17 +616,11 @@ namespace ULM.Linux.ViewModels
         /// Dateinamen (nur wenn er nachweislich neuer ist oder noch keiner hinterlegt war, siehe
         /// DistroMatcher.ShouldAdoptImportedFilename — sonst würde eine ältere, zufällig gefundene
         /// Datei den Katalog rückwärts degradieren).</summary>
-        public IsoEntry AddImportedEntry(IsoEntry e)
+        public void AddImportedEntry(IsoEntry e)
         {
             var existing = _db.Entries.FirstOrDefault(d => DistroMatcher.AreSameDistro(d, e));
             if (existing != null)
             {
-                bool metadataChanged = false;
-                if (string.IsNullOrWhiteSpace(existing.Url) && !string.IsNullOrWhiteSpace(e.Url)) { existing.Url = e.Url; metadataChanged = true; }
-                if (string.IsNullOrWhiteSpace(existing.DiscoverySlug) && !string.IsNullOrWhiteSpace(e.DiscoverySlug)) { existing.DiscoverySlug = e.DiscoverySlug; metadataChanged = true; }
-                if (string.IsNullOrWhiteSpace(existing.DiscoveryPage) && !string.IsNullOrWhiteSpace(e.DiscoveryPage)) { existing.DiscoveryPage = e.DiscoveryPage; metadataChanged = true; }
-                if (string.IsNullOrWhiteSpace(existing.GithubRepo) && !string.IsNullOrWhiteSpace(e.GithubRepo)) { existing.GithubRepo = e.GithubRepo; metadataChanged = true; }
-                if (string.IsNullOrWhiteSpace(existing.GithubAsset) && !string.IsNullOrWhiteSpace(e.GithubAsset)) { existing.GithubAsset = e.GithubAsset; metadataChanged = true; }
                 if (DistroMatcher.ShouldAdoptImportedFilename(existing.Filename, e.Filename))
                 {
                     AppendLog(string.Format(LocalizationService.T(Str.Log_FilenameAdopted), e.Filename, existing.Name));
@@ -584,15 +629,11 @@ namespace ULM.Linux.ViewModels
                     _db.Save();
                 }
                 else
-                {
                     AppendLog(string.Format(LocalizationService.T(Str.Log_FilenameNotAdopted), e.Filename, existing.Name));
-                    if (metadataChanged) _db.Save();
-                }
-                return existing;
+                return;
             }
             _db.Add(e);
             AppendLog(string.Format(LocalizationService.T(Str.Log_EntryAdded), e.Category, e.Name, e.Filename));
-            return e;
         }
 
         public RelayCommand RefreshCommand { get; }
@@ -791,7 +832,6 @@ namespace ULM.Linux.ViewModels
                 };
             }
 
-            worker.ItemCompleted += (entry, success) => { if (!success) Avalonia.Threading.Dispatcher.UIThread.Post(() => DownloadItemFailed?.Invoke(entry.Name)); };
             worker.OverallProgress += (pct, detail) => Avalonia.Threading.Dispatcher.UIThread.Post(() => { DownloadPercent = pct; DownloadStatus = detail; });
             worker.SlotUpdated += p => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
             {
@@ -1115,7 +1155,8 @@ namespace ULM.Linux.ViewModels
             if (IsBusy || HealthCheckActive) return;
             // Windows-Pendant: RunHealthCheck() räumt zuerst Duplikate weg, damit nicht doppelt
             // geprüft wird ("Gesundheitscheck & Duplikat-Schutz", Nutzerwunsch 2026-09-04).
-            if (DeduplicateEntries() > 0) ApplyFilter();
+            bool namesNormalized = NormalizeEntryNames() > 0;
+            if (DeduplicateEntries() > 0 || namesNormalized) ApplyFilter();
             HealthCheckActive = true;
             HealthCheckPercent = 0;
             var results = new List<VersionCheckEntryResult>();
@@ -1151,16 +1192,13 @@ namespace ULM.Linux.ViewModels
         /// an ("Datenmüll-Schutz", Nutzerwunsch 2026-09-04).</summary>
         public event Action? AutoVersionCheckCompleted;
 
-        public async Task TriggerAutoVersionCheckAsync(Action<int>? progress = null)
+        public async Task TriggerAutoVersionCheckAsync()
         {
             if (_db.Entries.Count == 0) { AutoVersionCheckCompleted?.Invoke(); return; }
             OnlineScanActive = true; OnlineScanPercent = 0;
             var worker = new AutoVersionCheckWorker(_db.Entries, _downloadDirectory);
             worker.Progress += (c, t) => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
-            {
-                OnlineScanPercent = t > 0 ? (c * 100) / t : 0;
-                progress?.Invoke(OnlineScanPercent);
-            });
+                OnlineScanPercent = t > 0 ? (c * 100) / t : 0);
             worker.EntryChecked += result => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
                 AppendLog(!result.Resolved
                     ? string.Format(LocalizationService.T(Str.Log_EntryUnreachable), result.Name)
@@ -1178,32 +1216,6 @@ namespace ULM.Linux.ViewModels
             });
             await worker.RunAsync().ConfigureAwait(true);
             await tcs.Task.ConfigureAwait(true);
-        }
-
-        public async Task<bool> HasActiveInternetConnectionAsync()
-        {
-            foreach (string url in new[] { "https://www.google.com/generate_204", "https://github.com/", "https://distrowatch.com/" })
-                if (await HttpService.Instance.IsReachableAsync(url, 5).ConfigureAwait(true)) return true;
-            return false;
-        }
-
-        public async Task RunStartupOnlineChecksAsync(Action<string>? status = null, Action<int>? progress = null)
-        {
-            if (IsBusy) return;
-            IsBusy = true;
-            try
-            {
-                progress?.Invoke(0);
-                status?.Invoke("URL-Prüfung läuft ...");
-                await CheckUrlsCoreAsync(p => progress?.Invoke(p / 2)).ConfigureAwait(true);
-                status?.Invoke("Online-Scan läuft ...");
-                await TriggerAutoVersionCheckAsync(p => progress?.Invoke(50 + p / 2)).ConfigureAwait(true);
-                progress?.Invoke(100);
-            }
-            finally
-            {
-                IsBusy = false;
-            }
         }
 
         /// <summary>"Nach Updates suchen"-Button. Windows-Pendant: MainViewModel.OnCheckUpdates().</summary>
@@ -1236,17 +1248,11 @@ namespace ULM.Linux.ViewModels
         public async Task CheckUrlsAsync()
         {
             if (IsBusy) return;
-            IsBusy = true;
-            try { await CheckUrlsCoreAsync().ConfigureAwait(true); }
-            finally { IsBusy = false; }
-        }
-
-        private async Task CheckUrlsCoreAsync(Action<int>? progress = null)
-        {
-            UrlCheckStatus = LocalizationService.T(Str.Log_CheckingUrls);
+            IsBusy = true; UrlCheckStatus = LocalizationService.T(Str.Log_CheckingUrls);
+            UrlCheckActive = true; UrlCheckPercent = 0;
             var entries = _db.Entries.ToList();
             var worker = new UrlCheckWorker(entries);
-            worker.ProgressPercent += p => Avalonia.Threading.Dispatcher.UIThread.Post(() => progress?.Invoke(p));
+            worker.ProgressPercent += p => Avalonia.Threading.Dispatcher.UIThread.Post(() => UrlCheckPercent = p);
             worker.EntryChecked += (i, ok) => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
             {
                 if (i >= 0 && i < entries.Count)
@@ -1256,6 +1262,8 @@ namespace ULM.Linux.ViewModels
             worker.Completed += (_, _) => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
             {
                 if (worker.AnyUrlDiscovered || worker.AnyStreakChanged) { _db.Save(); AppendLog(LocalizationService.T(Str.Log_DbNewSourcesSaved)); }
+                IsBusy = false;
+                UrlCheckActive = false; UrlCheckPercent = 100;
                 int ok = entries.Count(e => e.UrlOk); int nok = entries.Count(e => e.UrlChecked && !e.UrlOk);
                 UrlCheckStatus = string.Format(LocalizationService.T(Str.Log_UrlCheckSummaryStatus), ok, nok);
                 ApplyFilter();
@@ -1265,54 +1273,76 @@ namespace ULM.Linux.ViewModels
             await tcs.Task.ConfigureAwait(true);
         }
 
+        /// <summary>Orchestriert beide Phasen des Start-Checks (Versionscheck, dann URL-Check) für
+        /// StartupCheckDialog — Nutzerwunsch (2026-09-16): "URLs prüfen" soll im selben
+        /// Bitte-warten-Fenster mit eigenem Fortschritt durchlaufen, nicht nur der Versionscheck.
+        /// Sequenziell statt parallel: beide Worker würden sonst um dieselben HttpClient-
+        /// Verbindungen/Netzwerkbandbreite konkurrieren, ohne dass der Anwender einen Vorteil davon
+        /// hätte (das Fenster blockiert ohnehin bis beide fertig sind).</summary>
+        public event Action? StartupChecksCompleted;
+        public async Task RunStartupChecksAsync()
+        {
+            await TriggerAutoVersionCheckAsync().ConfigureAwait(true);
+            await CheckUrlsAsync().ConfigureAwait(true);
+            StartupChecksCompleted?.Invoke();
+        }
+
+        /// <summary>Windows-Pendant: MainViewModel.VerifyStickIntegrityAsync() (ViewModels/
+        /// MainViewModel.cs ~Zeile 736) — nutzt dieselben plattformneutralen Bausteine
+        /// (UsbService.ScanStickVerifiedAsync, IsoEntry.ComputeSha256Async/Sha256/
+        /// HashMismatchDetected). Vereinfacht um das dort vorhandene Stick-Update-Angebot
+        /// (IncompleteIsosOnStickDetected) und den separaten ActivityHistory-Verlauf — Linux nutzt
+        /// dafür bereits LogEntries/IntegrityStatus (siehe Phase A/B-1). Reagiert nicht auf
+        /// Abbruch (kein Cancel-Button in Phase A/B — Windows' Abbruch-Zweig daher bewusst
+        /// weggelassen, kein Verhaltensunterschied für den Normalfall).</summary>
         public async Task VerifyStickIntegrityAsync()
         {
-            if (SelectedDrive?.MountPoint is not string mountPoint || IsBusy) return;
-            var damaged = new List<UsbService.StickIso>();
-            _integrityCts = new CancellationTokenSource();
-            var token = _integrityCts.Token;
+            if (SelectedDrive?.MountPoint is null || IsBusy) return;
+            string mountPoint = SelectedDrive.MountPoint;
+            string deviceNode = SelectedDrive.DeviceNode;
+
             IsBusy = true;
             DownloadPercent = 0;
             IntegrityStatus = LocalizationService.T(Str.Log_CheckingIntegrity);
-            AppendLog(IntegrityStatus);
+            AppendLog(string.Format(LocalizationService.T(Str.Log_IntegrityCheckStarted), deviceNode));
             try
             {
-                // Scan API has no cancellation parameter; WaitAsync releases the UI promptly.
-                var (found, incomplete) = await UsbService.Instance.ScanStickVerifiedAsync(mountPoint, _db.Entries).WaitAsync(token);
-                damaged.AddRange(incomplete);
-                var byFilename = found.GroupBy(f => f.Filename, StringComparer.OrdinalIgnoreCase)
-                    .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
-                var entries = _db.Entries.Where(e => !string.IsNullOrEmpty(e.Sha256) && byFilename.ContainsKey(e.Filename)).ToList();
-                int checkedCount = 0;
-                foreach (var entry in entries)
+                // UsbService.Instance (Core, plattformneutral) — nicht das Linux-eigene _usbService-
+                // Feld (LinuxUsbService, nur lsblk-Geräteliste). Analog zu UsbService.UpdateVentoyMenu
+                // (statisch) bereits in CopySelectedToStickAsync genutzt.
+                var (found, _) = await UsbService.Instance.ScanStickVerifiedAsync(mountPoint, _db.Entries).ConfigureAwait(true);
+                var byFilename = new Dictionary<string, UsbService.StickIso>(StringComparer.OrdinalIgnoreCase);
+                foreach (UsbService.StickIso f in found)
+                    if (!byFilename.ContainsKey(f.Filename)) byFilename[f.Filename] = f;
+
+                int totalToCheck = _db.Entries.Count(e => !string.IsNullOrEmpty(e.Sha256) && byFilename.ContainsKey(e.Filename));
+                int mismatches = 0, checkedCount = 0;
+                foreach (IsoEntry entry in _db.Entries)
                 {
-                    token.ThrowIfCancellationRequested();
-                    var stick = byFilename[entry.Filename];
-                    var actual = await IsoEntry.ComputeSha256Async(stick.FullPath, token);
-                    token.ThrowIfCancellationRequested();
-                    if (string.IsNullOrEmpty(actual)) throw new System.IO.IOException(stick.FullPath);
-                    entry.HashMismatchDetected = !string.Equals(actual, entry.Sha256, StringComparison.OrdinalIgnoreCase);
-                    if (entry.HashMismatchDetected) damaged.Add(stick);
-                    DownloadPercent = ++checkedCount * 100 / entries.Count;
+                    if (string.IsNullOrEmpty(entry.Sha256) || !byFilename.TryGetValue(entry.Filename, out var stick)) continue;
+                    checkedCount++;
+                    DownloadPercent = totalToCheck > 0 ? (checkedCount * 100) / totalToCheck : 0;
+                    string actual = await IsoEntry.ComputeSha256Async(stick.FullPath).ConfigureAwait(true);
+                    if (string.IsNullOrEmpty(actual)) continue;
+                    bool mismatch = !string.Equals(actual, entry.Sha256, StringComparison.OrdinalIgnoreCase);
+                    entry.HashMismatchDetected = mismatch;
+                    if (mismatch) mismatches++;
                 }
-                IntegrityStatus = damaged.Count > 0
-                    ? string.Format(LocalizationService.T(Str.Log_HashMismatchesStatus), damaged.Count)
+
+                IntegrityStatus = mismatches > 0
+                    ? string.Format(LocalizationService.T(Str.Log_HashMismatchesStatus), mismatches)
                     : string.Format(LocalizationService.T(Str.Log_IsosVerifiedStatus), checkedCount);
-                AppendLog(IntegrityStatus);
-            }
-            catch (OperationCanceledException)
-            {
-                damaged.Clear();
-                IntegrityStatus = Localized("Integritätsprüfung abgebrochen.", "Integrity check cancelled.");
+                AppendLog(string.Format(LocalizationService.T(Str.Log_IntegrityCheckDone), deviceNode, checkedCount, mismatches));
             }
             catch (Exception ex)
             {
-                damaged.Clear();
                 AppendLog(string.Format(LocalizationService.T(Str.Log_IntegrityCheckFailed), ex.Message));
                 IntegrityStatus = LocalizationService.T(Str.Log_ErrorStatus);
             }
-            finally { _integrityCts.Dispose(); _integrityCts = null; IsBusy = false; }
-            if (damaged.Count > 0) IncompleteIsosOnStickDetected?.Invoke(damaged, mountPoint);
+            finally
+            {
+                IsBusy = false;
+            }
         }
 
         private string? _lastScannedDeviceNode;
@@ -1379,15 +1409,15 @@ namespace ULM.Linux.ViewModels
         private async Task ScanConnectedStickAsync(string mountPoint)
         {
             UsbScanActive = true;
+            UsbScanPercent = 0;
             try
             {
-                var (found, incomplete) = await UsbService.Instance.ScanStickVerifiedAsync(mountPoint, _db.Entries).ConfigureAwait(true);
+                var (found, incomplete) = await UsbService.Instance.ScanStickVerifiedAsync(mountPoint, _db.Entries,
+                    (done, total) => Avalonia.Threading.Dispatcher.UIThread.Post(() => UsbScanPercent = total > 0 ? done * 100 / total : 100))
+                    .ConfigureAwait(true);
                 _lastStickListing = found;
                 ApplyStickResults(found);
-                ClassifyStickFindings(found, mountPoint);
-                var missing = GetVerifiedCompleteEntriesMissingFromStick();
-                if (missing.Count > 0) MissingOnStickDetected?.Invoke(missing, mountPoint);
-                if (incomplete.Count > 0) IncompleteIsosOnStickDetected?.Invoke(incomplete, mountPoint);
+                await ClassifyStickFindings(found, mountPoint).ConfigureAwait(true);
                 ApplyFilter();
                 // Diagnose (Nutzerfund 2026-09-06): bisher loggte diese Methode im Erfolgsfall GAR
                 // NICHTS — "keine weitere Zeile im Protokoll" ließ sich dadurch nicht von "Scan lief
@@ -1429,16 +1459,22 @@ namespace ULM.Linux.ViewModels
         // Optimierung "schon über den Versionscheck erkannt, nicht doppelt melden". "Missing on
         // Stick" (lokal vollständig, aber nicht auf dem gerade gescannten Stick) bewusst NICHT
         // Teil dieser Phase, siehe MainWindow.axaml.cs RunLocalFileMaintenanceAsync-Kommentar. ──
-        public event Action<List<(IsoEntry DbEntry, UsbService.StickIso StickIso)>, string>? NewerVersionsOnStickDetected;
-        public event Action<List<UsbService.StickIso>, string>? UnknownIsosOnStickDetected;
-        public event Action<List<(IsoEntry Entry, string OldFilename)>, string>? StaleDuplicatesOnStickDetected;
+        // BUGFIX (Nutzerfund 2026-09-16): waren Action-Events — ClassifyStickFindings feuerte alle
+        // drei sofort nacheinander ab, OHNE auf den jeweils geöffneten Dialog zu warten ("async
+        // void"-Handler geben die Kontrolle beim ersten await sofort zurück). Ergebnis: mehrere
+        // Stick-Dialoge (unbekannte ISOs, veraltete Duplikate, neuere Version) poppten gleichzeitig/
+        // durcheinander auf, zusätzlich parallel zum Start-Check-Fenster (siehe App.axaml.cs). Jetzt
+        // Func<...,Task> — der Aufrufer awaitet jeden Dialog, bevor der nächste Fund gemeldet wird.
+        public event Func<List<(IsoEntry DbEntry, UsbService.StickIso StickIso)>, string, Task>? NewerVersionsOnStickDetected;
+        public event Func<List<UsbService.StickIso>, string, Task>? UnknownIsosOnStickDetected;
+        public event Func<List<(IsoEntry Entry, string OldFilename)>, string, Task>? StaleDuplicatesOnStickDetected;
 
         private readonly HashSet<string> _newerVersionOfferedKeys = new();
         private readonly HashSet<string> _unknownStickIsoOfferedKeys = new();
         public bool MarkNewerVersionOffered(string drive, string filename) => _newerVersionOfferedKeys.Add($"{drive}|{filename}");
         public bool MarkUnknownStickIsoOffered(string drive, string filename) => _unknownStickIsoOfferedKeys.Add($"{drive}|{filename}");
 
-        private void ClassifyStickFindings(IReadOnlyList<UsbService.StickIso> found, string mountPoint)
+        private async Task ClassifyStickFindings(IReadOnlyList<UsbService.StickIso> found, string mountPoint)
         {
             var dbFn = new HashSet<string>(_db.Entries.Select(e => e.Filename).Where(f => !string.IsNullOrEmpty(f)), StringComparer.OrdinalIgnoreCase);
             var unmatched = found.Where(f => !string.IsNullOrWhiteSpace(f.Filename) && !dbFn.Contains(f.Filename)).ToList();
@@ -1455,13 +1491,16 @@ namespace ULM.Linux.ViewModels
             }
 
             var freshDuplicates = duplicates; // Löschen macht sie beim nächsten Scan von selbst verschwinden — kein Mark-Offered nötig, siehe Windows-Pendant OnStaleDuplicatesOnStick.
-            if (freshDuplicates.Count > 0) StaleDuplicatesOnStickDetected?.Invoke(freshDuplicates, mountPoint);
+            if (freshDuplicates.Count > 0 && StaleDuplicatesOnStickDetected is not null)
+                await StaleDuplicatesOnStickDetected(freshDuplicates, mountPoint).ConfigureAwait(true);
 
             var freshNewer = newer.Where(n => MarkNewerVersionOffered(mountPoint, n.Item2.Filename)).ToList();
-            if (freshNewer.Count > 0) NewerVersionsOnStickDetected?.Invoke(freshNewer, mountPoint);
+            if (freshNewer.Count > 0 && NewerVersionsOnStickDetected is not null)
+                await NewerVersionsOnStickDetected(freshNewer, mountPoint).ConfigureAwait(true);
 
             var freshUnknowns = trueUnknowns.Where(u => MarkUnknownStickIsoOffered(mountPoint, u.Filename)).ToList();
-            if (freshUnknowns.Count > 0) UnknownIsosOnStickDetected?.Invoke(freshUnknowns, mountPoint);
+            if (freshUnknowns.Count > 0 && UnknownIsosOnStickDetected is not null)
+                await UnknownIsosOnStickDetected(freshUnknowns, mountPoint).ConfigureAwait(true);
         }
 
         /// <summary>Windows-Pendant: MainViewModel.ReplaceEntryVersion() — übernimmt den neuen
@@ -1469,15 +1508,18 @@ namespace ULM.Linux.ViewModels
         public void ReplaceEntryVersion(IsoEntry e, string newFn)
         {
             string oldFn = e.Filename;
-            string oldVer = HttpService.ExtractVersion(oldFn);
-            if (string.IsNullOrEmpty(oldVer)) oldVer = HttpService.ExtractVersion(e.Name);
             string newVer = HttpService.ExtractVersion(newFn);
             e.Filename = newFn; e.RemoteVersion = string.Empty; e.RemoteUrl = string.Empty;
             e.RemoteFilename = string.Empty; e.UpdateAvailable = false;
-            if (!string.IsNullOrEmpty(oldVer) && !string.IsNullOrEmpty(newVer) && oldVer != newVer)
+            // BUGFIX: siehe ApplyResolvedUpdates oben -- fuer die Textersetzung im Namen die dort
+            // tatsaechlich vorkommende Version verwenden (nicht die aus dem alten Dateinamen, die
+            // z.B. bei CachyOS/EndeavourOS in einem anderen Format vorliegt und im Namen nie
+            // gefunden wuerde).
+            string nameVer = HttpService.ExtractVersion(e.Name);
+            if (!string.IsNullOrEmpty(nameVer) && !string.IsNullOrEmpty(newVer) && nameVer != newVer)
             {
-                int pos = e.Name.IndexOf(oldVer, StringComparison.Ordinal);
-                if (pos >= 0) e.Name = e.Name[..pos] + newVer + e.Name[(pos + oldVer.Length)..];
+                int pos = e.Name.IndexOf(nameVer, StringComparison.Ordinal);
+                if (pos >= 0) e.Name = e.Name[..pos] + newVer + e.Name[(pos + nameVer.Length)..];
             }
             AppendLog(string.Format(LocalizationService.T(Str.Log_FilenameReplaced), e.Name, oldFn, newFn));
             _db.Save();

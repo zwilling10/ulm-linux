@@ -2,7 +2,6 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:ULM.Linux.ViewModels"
         xmlns:linux="using:ULM.Linux"
-        xmlns:views="using:ULM.Linux.Views"
         xmlns:conv="using:ULM.Linux.Converters"
         x:Class="ULM.Linux.Views.MainWindow"
         x:DataType="vm:LinuxMainViewModel"
@@ -103,14 +102,14 @@
                 <Button Grid.Column="2" Classes="ghost" Content="↻" FontSize="16" Width="32" Height="32" Padding="0"
                         Command="{Binding RefreshCommand}"/>
 
-                <StackPanel Grid.Column="3" Orientation="Horizontal" Margin="10,0,0,0" IsVisible="{Binding IsExpertMode}">
+                <StackPanel Grid.Column="3" Orientation="Horizontal" Margin="10,0,0,0">
                     <Button Classes="success" Content="{Binding VentoyInstallLabel}"
                             Command="{Binding RequestVentoyInstallCommand}" Margin="0,0,8,0"/>
                     <Button Classes="success" Content="{Binding VentoyUpdateLabel}"
                             Command="{Binding RequestVentoyUpdateCommand}"/>
                 </StackPanel>
 
-                <CheckBox Grid.Column="4" IsVisible="{Binding IsExpertMode}" Content="{Binding SecureBootLabel}" IsChecked="{Binding SecureBootEnabled}"
+                <CheckBox Grid.Column="4" Content="{Binding SecureBootLabel}" IsChecked="{Binding SecureBootEnabled}"
                           Margin="14,0,0,0" VerticalAlignment="Center"/>
 
                 <TextBlock Grid.Column="6" Text="{Binding DriveInfoText}" Foreground="{DynamicResource BrushBlue}"
@@ -137,9 +136,11 @@
 
             <TabItem Header="{Binding TabIsoSelectionLabel}">
                 <Grid RowDefinitions="Auto,*">
+                    <!-- Spaltenbreiten "28,36,*,100,100,100" spiegeln EXAKT das EntryTemplate-Grid unten
+                         (gleiche Einrückung 28px vor der Checkbox), damit Kopf- und Datenspalten fluchten. -->
                     <Border Grid.Row="0" Background="{DynamicResource BrushCard}"
                             BorderBrush="{DynamicResource BrushBorder}" BorderThickness="0,0,0,1" Padding="4,7">
-                        <Grid ColumnDefinitions="36,30,388,130,150,150,30">
+                        <Grid ColumnDefinitions="28,36,*,100,100,100">
                             <TextBlock Grid.Column="2" Text="{Binding ColumnDistributionLabel}"
                                        FontWeight="Bold" FontSize="11" Foreground="{DynamicResource BrushMid}"/>
                             <TextBlock Grid.Column="3" Text="{Binding ColumnLocalLabel}"
@@ -156,7 +157,12 @@
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate x:DataType="vm:CategoryGroup">
                                     <StackPanel Margin="0,0,0,2">
-                                        <Border Background="{DynamicResource BrushCard}" Padding="14,8" Margin="0,6,0,0">
+                                        <!-- Kategorie-Checkbox bewusst weit links (Padding 8 statt 14) — die Distro-
+                                             Checkboxen darunter sind zusätzlich per Grid-Spalte eingerückt (siehe
+                                             EntryTemplate-Grid "28,36,..."), damit die Eltern/Kind-Hierarchie
+                                             (Sammel-Checkbox oben, einzelne Einträge darunter) optisch erkennbar ist
+                                             (Nutzerfund: "Hauptkategorie weiter links, Distros darunter versetzt"). -->
+                                        <Border Background="{DynamicResource BrushCard}" Padding="8,8" Margin="0,6,0,0">
                                             <StackPanel Orientation="Horizontal">
                                                 <CheckBox IsThreeState="True" IsChecked="{Binding AllSelected, Mode=TwoWay}"
                                                           VerticalAlignment="Center" Margin="0,0,10,0"/>
@@ -168,25 +174,10 @@
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate x:DataType="vm:LinuxIsoRow">
                                                     <Border Padding="0,5" BorderBrush="{DynamicResource BrushBorder}"
-                                                            BorderThickness="0,0,0,1"
-                                                            Background="Transparent"
-                                                            DoubleTapped="EntryRow_DoubleTapped">
-                                                        <Grid ColumnDefinitions="36,30,388,130,150,150,30">
-                                                            <CheckBox Grid.Column="0" IsChecked="{Binding IsSelected}"
+                                                            BorderThickness="0,0,0,1">
+                                                        <Grid ColumnDefinitions="28,36,*,100,100,100">
+                                                            <CheckBox Grid.Column="1" IsChecked="{Binding IsSelected}"
                                                                       VerticalAlignment="Center" HorizontalAlignment="Center"/>
-                                                            <Canvas Grid.Column="1" Width="16" Height="16"
-                                                                    HorizontalAlignment="Center" VerticalAlignment="Center"
-                                                                    IsVisible="{Binding HasHashStatus}"
-                                                                    ToolTip.Tip="{Binding HashStatusTooltip}">
-                                                                <Ellipse Width="14" Height="14" Canvas.Left="1" Canvas.Top="1"
-                                                                         Stroke="{Binding HashStatusBrush}" StrokeThickness="1.4" Fill="Transparent"/>
-                                                                <Ellipse Width="1.8" Height="1.8" Canvas.Left="5.2" Canvas.Top="6"
-                                                                         Fill="{Binding HashStatusBrush}"/>
-                                                                <Ellipse Width="1.8" Height="1.8" Canvas.Left="9" Canvas.Top="6"
-                                                                         Fill="{Binding HashStatusBrush}"/>
-                                                                <Path Stroke="{Binding HashStatusBrush}" StrokeThickness="1.3"
-                                                                      Data="M 4.5,9.3 Q 8,12 11.5,9.3"/>
-                                                            </Canvas>
                                                             <TextBlock Grid.Column="2" Text="{Binding Name}"
                                                                        Foreground="{Binding ForegroundBrush}"
                                                                        FontSize="12.5" FontWeight="SemiBold"
@@ -203,24 +194,37 @@
                                                                     </MultiBinding>
                                                                 </ToolTip.Tip>
                                                             </TextBlock>
-                                                            <TextBlock Grid.Column="3" Text="{Binding LocalStatus}"
-                                                                       TextTrimming="CharacterEllipsis"
-                                                                       ToolTip.Tip="{Binding LocalStatus}"
-                                                                       Foreground="{DynamicResource BrushMid}"
-                                                                       FontSize="11.5" VerticalAlignment="Center"/>
+                                                            <!-- Spalte 3 ist fest 100px breit (siehe ColumnDefinitions oben) — der
+                                                                 Live-Fortschrittstext während eines Downloads ("8% ↓ host.tld —
+                                                                 53 MB/2.9 GB · 26 MB/s") ist deutlich länger als "nicht lokal" und
+                                                                 lief ohne feste Breite/Trimming über die Spaltengrenze hinaus in die
+                                                                 Nachbarspalten/-zeilen (Nutzerfund 2026-09-04, Screenshot). Feste
+                                                                 Width + TextTrimming zwingt ihn in die Spalte, ToolTip zeigt den
+                                                                 vollen Text bei Bedarf. -->
+                                                            <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center">
+                                                                <TextBlock Text="{Binding LocalStatus}" Width="80"
+                                                                           TextTrimming="CharacterEllipsis"
+                                                                           ToolTip.Tip="{Binding LocalStatus}"
+                                                                           Foreground="{DynamicResource BrushMid}"
+                                                                           FontSize="11.5" VerticalAlignment="Center"/>
+                                                                <!-- "⚡ schneller"-Button — Windows-Pendant: DownloadSlotArgs.
+                                                                     CanRequestFasterMirror im DownloadProgressDialog. Ruft
+                                                                     DownloadWorker.RequestFasterMirror(entryName) über den
+                                                                     Hauptfenster-DataContext auf (diese Zeile hat als
+                                                                     x:DataType nur LinuxIsoRow, kein eigener Worker-Zugriff). -->
+                                                                <Button Content="⚡" FontSize="10" Padding="4,0" Margin="4,0,0,0"
+                                                                        Classes="ghost"
+                                                                        IsVisible="{Binding CanRequestFasterMirror}"
+                                                                        ToolTip.Tip="{Binding $parent[Window].((vm:LinuxMainViewModel)DataContext).FasterMirrorTooltip}"
+                                                                        Command="{Binding $parent[Window].((vm:LinuxMainViewModel)DataContext).RequestFasterMirrorCommand}"
+                                                                        CommandParameter="{Binding Entry.Name}"/>
+                                                            </StackPanel>
                                                             <TextBlock Grid.Column="4" Text="{Binding UsbStatus}"
                                                                        Foreground="{DynamicResource BrushMid}"
                                                                        FontSize="11.5" VerticalAlignment="Center"/>
                                                             <TextBlock Grid.Column="5" Text="{Binding VersionStatus}"
                                                                        Foreground="{DynamicResource BrushMid}"
                                                                        FontSize="11.5" VerticalAlignment="Center"/>
-                                                            <Button Grid.Column="6" Content="🔧" FontSize="12"
-                                                                    Width="24" Height="24" Padding="0"
-                                                                    ToolTip.Tip="{Binding ManualSearchTooltip}"
-                                                                    Click="BtnManualSearch_Click"
-                                                                    Classes="ghost"
-                                                                    IsVisible="{Binding ShowManualSearchButton}"
-                                                                    VerticalAlignment="Center" HorizontalAlignment="Center"/>
                                                         </Grid>
                                                     </Border>
                                                 </DataTemplate>
@@ -252,7 +256,7 @@
                 </Grid>
             </TabItem>
 
-            <TabItem Header="{Binding TabStatusLabel}" IsVisible="{Binding IsExpertMode}">
+            <TabItem Header="{Binding TabStatusLabel}">
                 <ScrollViewer Background="{DynamicResource BrushWhite}">
                     <StackPanel Margin="12">
                         <TextBlock Text="{Binding StatusCurrentOperationLabel}" FontWeight="Bold" FontSize="13"
@@ -268,21 +272,9 @@
                                        IsVisible="{Binding UpdateCheckStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
                             <TextBlock Text="{Binding UrlCheckStatus}" FontSize="12"
                                        IsVisible="{Binding UrlCheckStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
-                            <TextBlock Text="{Binding IntegrityStatus}" FontSize="12" TextWrapping="Wrap"
-                                       IsVisible="{Binding IntegrityStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
                             <TextBlock Text="{Binding VentoyStatus}" FontSize="12" TextWrapping="Wrap"
                                        IsVisible="{Binding VentoyStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
                         </StackPanel>
-                        <TextBlock Text="{Binding ActivityHistoryLabel}" FontWeight="Bold" Margin="0,8"/>
-                        <ItemsControl ItemsSource="{Binding ActivityHistory}">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate x:DataType="x:String">
-                                    <TextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,2"/>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                        <Button Classes="ghost" Content="{Binding ClearActivityHistoryLabel}"
-                                Command="{Binding ClearActivityHistoryCommand}" HorizontalAlignment="Right" Margin="0,8"/>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>
@@ -308,8 +300,10 @@
                             Command="{Binding CancelDownloadCommand}" IsVisible="{Binding IsBusy}"/>
                 </StackPanel>
 
-                <!-- Zusätzliche Werkzeuge im Expertenmodus; Zeilen umbrechen auf kleinen Fenstern. -->
-                <WrapPanel Orientation="Horizontal" IsVisible="{Binding IsExpertMode}">
+                <!-- "ExpertBar": die restlichen Windows-Werkzeuge sichtbar, aber ohne Linux-Backing
+                     deaktiviert (Phase B füllt diese, siehe Plan) — "Auf Stick kopieren" bleibt aktiv,
+                     das Feature existiert bereits (Phase 2). -->
+                <StackPanel Orientation="Horizontal">
                     <Button Classes="ghost" Content="{Binding ActionCheckUrlsLabel}" Width="130" Margin="0,0,8,0"
                             Command="{Binding CheckUrlsCommand}"/>
                     <Button Classes="ghost" Content="{Binding ActionSearchIsoLabel}" Width="130" Margin="0,0,8,0"
@@ -324,13 +318,7 @@
                             Command="{Binding VerifyIntegrityCommand}"/>
                     <Button Classes="ghost" Content="{Binding ActionGitHubTokenLabel}" Width="130"
                             Click="BtnGitHubToken_Click"/>
-                    <Button Classes="ghost" Content="{Binding ActionCatchUpCopiesLabel}" Margin="0,4,8,0"
-                            Command="{Binding CatchUpCopiesCommand}"/>
-                    <Button Classes="ghost" Content="{Binding ActionManualSourceLabel}" Margin="0,4,8,0"
-                            Click="BtnManualSource_Click" IsEnabled="{Binding !IsBusy}"/>
-                    <Button Classes="ghost" Content="{Binding ActionChangelogLabel}" Margin="0,4,8,0"
-                            Click="BtnChangelog_Click"/>
-                </WrapPanel>
+                </StackPanel>
 
                 <Grid ColumnDefinitions="*,Auto">
                     <ProgressBar Grid.Column="0" Height="5" Maximum="100" Value="{Binding DownloadPercent}"
@@ -349,10 +337,6 @@
                           IsChecked="{Binding ShowInfoOnHover}" FontSize="10.5" VerticalAlignment="Center"/>
             </Grid>
         </Border>
-
-        <views:AssistantAvatarButton x:Name="UliButton" Grid.Row="0" Grid.RowSpan="4"
-                                     HorizontalAlignment="Right" VerticalAlignment="Bottom"
-                                     Margin="0,0,20,12" ZIndex="999"/>
 
     </Grid>
 </Window>

@@ -180,29 +180,6 @@ namespace ULM.Linux.Tests
             Assert.Equal(2, db.Entries.Count);
         }
 
-        [Fact]
-        public void AddImportedEntry_ExistingMatch_ReturnsExistingAndKeepsDiscoveryMetadata()
-        {
-            var db = new FakeIsoDatabaseService();
-            var existing = new IsoEntry { Name = "Spaced Linux", Category = "Einsteiger" };
-            db.Add(existing);
-            var vm = new LinuxMainViewModel(db, "/tmp/ulm-linux-vm-test");
-
-            IsoEntry actual = vm.AddImportedEntry(new IsoEntry
-            {
-                Name = "Spaced Linux",
-                Category = "Einsteiger",
-                Filename = "spaced-linux-9.26-amd64.iso",
-                Url = "https://github.com/crhy/spaced/releases/download/v9.26/spaced-linux-9.26-amd64.iso",
-                DiscoverySlug = "spaced",
-                DiscoveryPage = "https://distrowatch.com/table.php?distribution=spaced"
-            });
-
-            Assert.Same(existing, actual);
-            Assert.Equal("spaced", existing.DiscoverySlug);
-            Assert.Equal("https://distrowatch.com/table.php?distribution=spaced", existing.DiscoveryPage);
-        }
-
         // Windows-Pendant: MainViewModel.ApplyResolvedUpdatesAndOfferStickUpdate() — Nutzerfund
         // (2026-09-06): "geladen wird die alte, das ist bei allen so". Root Cause: Der Online-Check
         // setzte bisher nur die Laufzeit-Felder RemoteVersion/RemoteUrl/RemoteFilename (Badge "🆕

@@ -1,7 +1,13 @@
 <Application xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="ULM.Linux.App"
-             RequestedThemeVariant="Default">
+             RequestedThemeVariant="Dark">
+    <!-- RequestedThemeVariant="Dark" (Avalonia 11.x-API, ersetzt das ältere FluentTheme
+         Mode="Dark") ist entscheidend: ohne das nutzt FluentTheme intern seine HELLEN Basisfarben
+         (u.a. für :disabled-Text) — unser eigenes DarkTheme.axaml überschreibt nur
+         Background/normale Foreground-Werte, nicht Fluents interne Disabled-Palette. Ergebnis ohne
+         diese Zeile: schwarzer/dunkler Text auf dunklem Grund bei deaktivierten Buttons (Nutzerfund:
+         "Schrift in den Buttons schwarz", nicht lesbar). -->
     <Application.Styles>
         <FluentTheme/>
         <StyleInclude Source="avares://ulm-linux/Themes/DarkTheme.axaml"/>

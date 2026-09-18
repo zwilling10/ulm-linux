@@ -76,6 +76,21 @@ namespace ULM.Core.Services
                 req.Headers.TryAddWithoutValidation("User-Agent", SourceForgeDownloadUserAgent);
         }
 
+        // Gleicher Effekt wie bei SourceForge oben, aber für reine Seitenabrufe (GetStringAsync)
+        // statt Downloads: distrowatch.com liefert mit dem Standard-Chrome-User-Agent 403
+        // Forbidden (Bot-Erkennung erkennt den TLS-/Verhaltens-Mismatch eines HttpClients, der
+        // Chrome nur behauptet, ohne es zu sein), mit einem curl-artigen UA dagegen 200 — live per
+        // curl verifiziert. Betrifft DiscoveryService's "Aktuellste"/"Beliebteste"-Listen
+        // (ISO-Suche) sowie ResolveViaDistroWatchAsync weiter unten in dieser Datei, die beide
+        // ausschließlich über GetStringAsync auf distrowatch.com zugreifen.
+        private static void ApplyPageUserAgentOverride(HttpRequestMessage req)
+        {
+            string? host = req.RequestUri?.Host;
+            if (host != null && (host.Equals("distrowatch.com", StringComparison.OrdinalIgnoreCase)
+                                  || host.EndsWith(".distrowatch.com", StringComparison.OrdinalIgnoreCase)))
+                req.Headers.TryAddWithoutValidation("User-Agent", SourceForgeDownloadUserAgent);
+        }
+
         private HttpService()
         {
             var handler = new SocketsHttpHandler
@@ -86,91 +101,13 @@ namespace ULM.Core.Services
                 MaxAutomaticRedirections = 10,
             };
             _client = new HttpClient(handler) { Timeout = Timeout.InfiniteTimeSpan };
-            // BUGFIX (live gefunden, 2026-09-02): DistroWatch blockte "ISO suchen" (Reiter
-            // "Aktuellste" UND "Beliebteste") komplett mit 403 Forbidden, obwohl es ein
-            // vollstaendiger, realistisch aussehender Chrome-User-Agent-String war — lag NICHT
-            // am Regex/HTML-Parsing (das liefert mit einer durchgelassenen Anfrage weiterhin
-            // korrekte Treffer). Isoliert per curl A/B-Test verifiziert: exakt "Chrome/124.0.0.0"
-            // wurde geblockt (403), andere aktuelle Versionsnummern (126/128/130/131/132, alle
-            // .0.0.0) kamen zuverlässig durch (200) — 124.0.0.0 war offenbar als weit verbreiteter
-            // Scraper-Default-Wert auf DistroWatchs Blockliste gelandet. Eine fest einprogrammierte
-            // Versionsnummer geht über kurz oder lang denselben Weg — deshalb hier direkt der
-            // eingebaute Wert nur als Fallback, siehe RefreshUserAgentAsync() für die eigentliche
-            // Lösung (analog zu den >20 dedizierten Distro-URL-Resolvern: nichts hart verdrahten,
-            // was sich online selbst aktuell halten lässt).
             _client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent",
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-                "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
+                "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36");
             _client.DefaultRequestHeaders.TryAddWithoutValidation("Accept",
                 "text/html,application/xhtml+xml,*/*;q=0.9");
             _client.DefaultRequestHeaders.TryAddWithoutValidation("Accept-Language",
                 "de-DE,de;q=0.9,en-US;q=0.8");
-        }
-
-        // ── Selbst-aktualisierender User-Agent ──────────────────────────────
-        // Statt eine Chrome-Versionsnummer dauerhaft fest einzuprogrammieren (die irgendwann
-        // wieder auf eine Blockliste wandern kann, wie "124.0.0.0" es bereits getan hat), wird die
-        // aktuell echte Chrome-Stable-Version über Googles offizielle "Chrome for Testing"-API
-        // abgefragt — von Google selbst genau für diesen Zweck (Tooling/Automatisierung braucht
-        // die aktuelle Chrome-Version) bereitgestellt, kein inoffizielles Scraping. 7-Tage-Cache
-        // (Chrome released grob monatlich, deckt sich mit dem "alle 3-4 Wochen"-Rhythmus, den
-        // niemand mehr manuell prüfen soll) — bei Offline/Fehler bleibt einfach der zuletzt
-        // bekannte bzw. der oben eingebaute Fallback-Wert bestehen, nichts bricht dadurch.
-        private const string ChromeVersionApiUrl =
-            "https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions.json";
-        private static readonly TimeSpan UserAgentCacheTtl = TimeSpan.FromDays(7);
-        private readonly object _userAgentLock = new();
-        private Task? _userAgentRefreshTask;
-
-        private Task EnsureCurrentUserAgentAsync()
-        {
-            lock (_userAgentLock)
-            {
-                _userAgentRefreshTask ??= RefreshUserAgentAsync();
-                return _userAgentRefreshTask;
-            }
-        }
-
-        private async Task RefreshUserAgentAsync()
-        {
-            try
-            {
-                string path = AppPaths.Instance.UserAgentCacheIni;
-                string version = IniService.Read(path, "ChromeUA", "MajorVersion");
-                string fetchedAtRaw = IniService.Read(path, "ChromeUA", "FetchedAtUtc");
-                bool fresh = DateTimeOffset.TryParse(fetchedAtRaw, out var fetchedAt)
-                             && DateTimeOffset.UtcNow - fetchedAt < UserAgentCacheTtl;
-
-                if (!fresh)
-                {
-                    // Direkt über _client, NICHT über GetStringAsync (das würde wiederum diese
-                    // Methode aufrufen — Rekursion). Eigener kurzer Timeout, damit ein hängender
-                    // Versions-Check nie den ersten echten Request der Sitzung nennenswert verzögert.
-                    using var cts  = new CancellationTokenSource(TimeSpan.FromSeconds(8));
-                    string   json  = await _client.GetStringAsync(ChromeVersionApiUrl, cts.Token).ConfigureAwait(false);
-                    using var doc  = JsonDocument.Parse(json);
-                    string fullVersion = doc.RootElement.GetProperty("channels").GetProperty("Stable").GetProperty("version").GetString() ?? "";
-                    string major = fullVersion.Split('.')[0];
-                    if (major.Length > 0 && int.TryParse(major, out _))
-                    {
-                        version = major;
-                        IniService.Write(path, "ChromeUA", "MajorVersion", major);
-                        IniService.Write(path, "ChromeUA", "FetchedAtUtc", DateTimeOffset.UtcNow.ToString("o"));
-                    }
-                }
-
-                if (!string.IsNullOrEmpty(version))
-                {
-                    // Reale Chrome-Browser senden seit der User-Agent-Reduktion ohnehin nur noch
-                    // "{Major}.0.0.0" (Minor/Build/Patch sind eingefroren) — das treffen wir hier
-                    // exakt nach, nicht nur zufällig ähnlich.
-                    _client.DefaultRequestHeaders.Remove("User-Agent");
-                    _client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent",
-                        $"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-                        $"(KHTML, like Gecko) Chrome/{version}.0.0.0 Safari/537.36");
-                }
-            }
-            catch (Exception ex) { Debug.WriteLine($"[UserAgentRefresh] {ex.Message}"); }
         }
 
         private async Task<string?> GetCachedAsync(string key)
@@ -272,27 +209,38 @@ namespace ULM.Core.Services
         public async Task<string?> GetStringAsync(string url, int timeoutSeconds = 15)
         {
             if (string.IsNullOrWhiteSpace(url)) return null;
-            await EnsureCurrentUserAgentAsync().ConfigureAwait(false);
             string cacheKey = "get:" + url;
             string? cached  = await GetCachedAsync(cacheKey).ConfigureAwait(false);
             if (cached is not null) return cached;
             try
             {
                 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds));
-                string text   = await _client.GetStringAsync(url, cts.Token).ConfigureAwait(false);
+                using var req = new HttpRequestMessage(HttpMethod.Get, url);
+                ApplyPageUserAgentOverride(req);
+                using HttpResponseMessage resp = await _client.SendAsync(req, cts.Token).ConfigureAwait(false);
+                resp.EnsureSuccessStatusCode();
+                string text = await resp.Content.ReadAsStringAsync(cts.Token).ConfigureAwait(false);
                 await SetCachedAsync(cacheKey, text).ConfigureAwait(false);
                 return text;
             }
             catch (Exception ex) { Debug.WriteLine($"[GetString] {url}: {ex.Message}"); return null; }
         }
 
-        public async Task<byte[]?> GetBytesAsync(string url, int timeoutSeconds = 10)
+        /// <summary>Roh-Bytes-Abruf (z.B. Vorschaubilder) — kein String-Cache wie bei
+        /// GetStringAsync (Binärdaten, kein Sinn), kein EnsureSuccessStatusCode (ein 404 — z.B.
+        /// eine Distro ohne DistroWatch-Screenshot — ist ein normaler, erwarteter Fall, kein
+        /// Fehler, der geloggt werden müsste).</summary>
+        public async Task<byte[]?> GetBytesAsync(string url, int timeoutSeconds = 15)
         {
             if (string.IsNullOrWhiteSpace(url)) return null;
             try
             {
                 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds));
-                return await _client.GetByteArrayAsync(url, cts.Token).ConfigureAwait(false);
+                using var req = new HttpRequestMessage(HttpMethod.Get, url);
+                ApplyPageUserAgentOverride(req);
+                using HttpResponseMessage resp = await _client.SendAsync(req, cts.Token).ConfigureAwait(false);
+                if (!resp.IsSuccessStatusCode) return null;
+                return await resp.Content.ReadAsByteArrayAsync(cts.Token).ConfigureAwait(false);
             }
             catch (Exception ex) { Debug.WriteLine($"[GetBytes] {url}: {ex.Message}"); return null; }
         }
@@ -611,8 +559,25 @@ namespace ULM.Core.Services
             if (!HasDedicatedResolver(entry)) entry.FailedResolveStreak++;
         }
 
+        /// <summary>
+        /// Wird true, wenn der letzte ResolveLatestAsync-Aufruf auf DuckDuckGos Bot-/Anomalie-
+        /// Erkennung ("Unfortunately, bots use DuckDuckGo too." — ein Bild-Captcha statt echter
+        /// Suchergebnisse, HTTP 202) gestoßen ist. Live beobachtet: mehrere Websuchen kurz
+        /// hintereinander (z.B. mehrere unbekannte ISOs beim Stick-Import) lösen diese Sperre für
+        /// die gesamte Restlaufzeit der Sperre aus — JEDE weitere Suche liefert dann "keine
+        /// Ergebnisse", obwohl die gesuchte Distro sehr wohl auffindbar wäre. Ohne dieses Signal ist
+        /// dieser Fall von einem echten "nichts gefunden" nicht unterscheidbar. Bewusst ein
+        /// einfaches Instanzfeld (kein Lock) — dient nur als UI-Hinweis, keine sicherheitskritische
+        /// Zustandsgröße; bei echt parallelen Resolve-Läufen kann der Wert kurzzeitig einem anderen
+        /// Aufruf gehören, was für einen reinen Hinweistext hinnehmbar ist.
+        /// </summary>
+        public bool LastResolveWasSearchEngineBlocked { get; private set; }
+
+        private const string DuckDuckGoBlockMarker = "bots use DuckDuckGo too";
+
         public async Task<(string Version, string Url, string Filename)> ResolveLatestAsync(IsoEntry entry)
         {
+            LastResolveWasSearchEngineBlocked = false;
             if (entry is null) return Empty;
             string rawFl = entry.Filename.ToLowerInvariant();
             string nl = NormalizeForMatch(entry.Name);
@@ -665,8 +630,6 @@ namespace ULM.Core.Services
             }
             if (result != Empty)
             {
-                if (string.IsNullOrWhiteSpace(entry.Url) && string.IsNullOrWhiteSpace(entry.GithubRepo))
-                    entry.Url = result.Item2;
                 ApplyResolveOutcome(entry, succeeded: true);
                 return result;
             }
@@ -725,20 +688,6 @@ namespace ULM.Core.Services
             var dw = await ResolveViaDistroWatchAsync(entry).ConfigureAwait(false);
             if (dw != Empty) return dw;
 
-            // BUGFIX (live gefunden bei CaramOS, 2026-08-17): ResolveViaDistroWatchAsync findet
-            // SourceForge-Projekte bisher NUR, wenn ein Link dorthin zufällig auf der gecrawlten
-            // Homepage/Download-Unterseite steht (TryFindSourceForgeProjectSlug). Verweist die
-            // offizielle Homepage stattdessen z.B. auf GitHub Releases (oder ihr Download-Link
-            // trägt gar kein englisches/deutsches "download"-Wort, siehe CaramOS: "Tải ISO"
-            // vietnamesisch), bricht der Automatismus dort komplett ab — OBWOHL ein SourceForge-
-            // Projekt mit demselben Namen tatsächlich existiert (bei CaramOS von Hand gefunden:
-            // sourceforge.net/projects/caramos). Ein direkter Rateversuch auf den Projektnamen
-            // schließt genau diese Lücke, bevor auf die ungenauere, generische Websuche
-            // zurückgefallen wird — siehe Doku an ResolveViaSourceForgeSearchAsync für den Grund,
-            // warum das bewusst KEIN Suchmaschinen-Aufruf ist.
-            var sf = await ResolveViaSourceForgeSearchAsync(entry).ConfigureAwait(false);
-            if (sf != Empty) return sf;
-
             // Allerletzter Fallback — nur wenn ALLE oben genannten, schnelleren und präziseren
             // Strategien nichts gefunden haben: eine echte Websuche, wie sie ein Mensch machen
             // würde. Läuft bewusst auch dann, wenn gar keine URL konfiguriert ist (allUrls leer)
@@ -763,22 +712,23 @@ namespace ULM.Core.Services
             if (string.IsNullOrWhiteSpace(entry.Name)) return Empty;
             try
             {
-                var dwCandidates = new List<string>();
-                if (!string.IsNullOrWhiteSpace(entry.DiscoveryPage)) dwCandidates.Add(entry.DiscoveryPage);
-                if (!string.IsNullOrWhiteSpace(entry.DiscoverySlug))
-                    dwCandidates.Add($"https://distrowatch.com/table.php?distribution={Uri.EscapeDataString(entry.DiscoverySlug)}");
-                if (dwCandidates.Count == 0)
-                {
-                    string query = Uri.EscapeDataString($"{FirstKeyword(entry.Name)} site:distrowatch.com");
-                    string? searchHtml = await GetStringAsync($"https://html.duckduckgo.com/html/?q={query}", 15).ConfigureAwait(false);
-                    if (searchHtml is null) return Empty;
+                // BUGFIX: Der "site:distrowatch.com"-Suchoperator liefert über DuckDuckGos HTML-Lite-
+                // Endpunkt sehr unzuverlässig 0 Treffer (live beobachtet: eine Distro, die über eine
+                // ungefilterte Suche klar auf distrowatch.com gefunden wurde, ergab mit demselben
+                // Schlüsselwort PLUS "site:"-Filter plötzlich GAR NICHTS). Der Filter ist ohnehin
+                // redundant — die Ergebnisse werden unten per .Where(u => u.Contains("distrowatch.com"))
+                // bereits nachträglich eingeschränkt. Nur noch "distrowatch" als zusätzliches
+                // Schlüsselwort mitsuchen statt des Suchoperators.
+                string query = Uri.EscapeDataString($"{FirstKeyword(entry.Name)} distrowatch");
+                string? searchHtml = await GetStringAsync($"https://html.duckduckgo.com/html/?q={query}", 15).ConfigureAwait(false);
+                if (searchHtml is null) return Empty;
+                if (searchHtml.Contains(DuckDuckGoBlockMarker, StringComparison.OrdinalIgnoreCase))
+                { LastResolveWasSearchEngineBlocked = true; return Empty; }
 
-                    dwCandidates.AddRange(Regex.Matches(searchHtml, @"class=""result__a""[^>]*href=""([^""]+)""", RegexOptions.IgnoreCase)
-                        .Cast<Match>().Select(m => ResolveDuckDuckGoRedirect(m.Groups[1].Value))
-                        .Where(u => u.Contains("distrowatch.com", StringComparison.OrdinalIgnoreCase))
-                        .Distinct(StringComparer.OrdinalIgnoreCase).Take(3));
-                }
-                dwCandidates = dwCandidates.Distinct(StringComparer.OrdinalIgnoreCase).Take(3).ToList();
+                var dwCandidates = Regex.Matches(searchHtml, @"class=""result__a""[^>]*href=""([^""]+)""", RegexOptions.IgnoreCase)
+                    .Cast<Match>().Select(m => ResolveDuckDuckGoRedirect(m.Groups[1].Value))
+                    .Where(u => u.Contains("distrowatch.com", StringComparison.OrdinalIgnoreCase))
+                    .Distinct(StringComparer.OrdinalIgnoreCase).Take(3).ToList();
                 if (dwCandidates.Count == 0) return Empty;
 
                 string? homepage = null;
@@ -786,8 +736,6 @@ namespace ULM.Core.Services
                 {
                     string? dwHtml = await GetStringAsync(dwUrl, 12).ConfigureAwait(false);
                     if (dwHtml is null) continue;
-                    var ghFromDw = await TryResolveGitHubReleaseFromTextAsync(entry, dwHtml).ConfigureAwait(false);
-                    if (ghFromDw != Empty) return ghFromDw;
                     // Verifiziertes Muster (DistroWatchs Distro-Detailtabelle nutzt <th>/<td>-Paare,
                     // NICHT zwei <td>-Zellen): <th class="Info">Home Page</th><td class="Info">
                     // <a href="...">...</a></td> — gegen eine echte Seite (garuda) geprüft.
@@ -807,8 +755,6 @@ namespace ULM.Core.Services
                     var sfResult = await TryResolveSourceForgeProjectAsync(sfSlug, entry.Filename).ConfigureAwait(false);
                     if (sfResult != Empty) return sfResult;
                 }
-                var ghFromHome = await TryResolveGitHubReleaseFromTextAsync(entry, homeHtml).ConfigureAwait(false);
-                if (ghFromHome != Empty) return ghFromHome;
 
                 var (links, pageForLinks, pageHtml) = await FindIsoLinksFollowingDownloadLinkAsync(homepage, homeHtml).ConfigureAwait(false);
                 if (links.Count == 0)
@@ -824,8 +770,6 @@ namespace ULM.Core.Services
                             var sfResult2 = await TryResolveSourceForgeProjectAsync(sfSlug2, entry.Filename).ConfigureAwait(false);
                             if (sfResult2 != Empty) return sfResult2;
                         }
-                        var ghFromDownloadPage = await TryResolveGitHubReleaseFromTextAsync(entry, pageHtml).ConfigureAwait(false);
-                        if (ghFromDownloadPage != Empty) return ghFromDownloadPage;
                     }
                     return Empty;
                 }
@@ -864,133 +808,6 @@ namespace ULM.Core.Services
                 return (ExtractVersion(bestFname), url, bestFname);
             }
             catch (Exception ex) { Debug.WriteLine($"[DistroWatch] {entry.Name}: {ex.Message}"); return Empty; }
-        }
-
-        /// <summary>
-        /// Sucht ein SourceForge-Projekt mit demselben Namen wie die Distro — für den Fall, dass
-        /// die offizielle Homepage (ResolveViaDistroWatchAsync) keinen SourceForge-Link enthält,
-        /// obwohl ein passendes Projekt existiert (z.B. weil dort stattdessen auf GitHub Releases
-        /// verwiesen wird, oder der Download-Link nicht-englisch beschriftet ist — live an CaramOS
-        /// gefunden).
-        ///
-        /// BUGFIX (live gefunden, 2026-08-17): die ursprüngliche Fassung suchte dafür über
-        /// DuckDuckGos HTML-Endpunkt ("site:sourceforge.net/projects"). Live-Test zeigte: DIESER
-        /// Endpunkt liefert einem reinen HTTP-Client (egal ob .NET HttpClient oder curl, auch mit
-        /// realistischem Browser-User-Agent) zuverlässig NICHT die echten Suchergebnisse, sondern
-        /// DuckDuckGos eigene Bot-Erkennungs-/"Anomaly"-Seite — nur ein echter Browser (die
-        /// Sitzung, mit der dieser Fund ursprünglich verifiziert wurde) kommt daran vorbei. Das
-        /// erklärt auch, warum die Auflösung bei CaramOS binnen ~1 Sekunde scheiterte, obwohl die
-        /// vollständige Kette (DistroWatch-Suche → Homepage → SourceForge-Suche → Websuche) real
-        /// mehrere Sekunden bräuchte: jeder DuckDuckGo-Schritt bricht sofort mit einer leeren/
-        /// nutzlosen Antwort ab, statt einen echten Roundtrip zu machen. Betrifft NICHT nur diese
-        /// Methode, sondern grundsätzlich jeden DuckDuckGo-Suchschritt in dieser Klasse (auch
-        /// ResolveViaDistroWatchAsync und ResolveViaWebSearchAsync) — ein bestehendes,
-        /// unabhängiges Risiko, das eine eigene Untersuchung braucht.
-        ///
-        /// Fix für DIESEN Schritt: statt eine Suchmaschine zu fragen, wird der SourceForge-
-        /// Projektname direkt aus dem Distro-Namen GERATEN (derselbe Normalisierungs-Helfer wie
-        /// beim Homepage-Link-Matching, NormalizeForMatch(...) — bei CaramOS ergibt das exakt
-        /// "caramos", den echten Projektnamen) und direkt gegen SourceForges RSS-Feed geprüft
-        /// (TryResolveSourceForgeProjectAsync). Kein Suchmaschinen-Umweg mehr nötig: ein falscher
-        /// Rateversuch liefert einfach einen leeren/404-Feed zurück (derselbe gutmütige Fehlschlag
-        /// wie bei jedem der bereits fest verdrahteten SourceForge-Resolver, die ihren
-        /// Projektnamen ebenfalls nie zur Laufzeit nachschlagen, sondern ihn kennen). Zwei
-        /// Kandidaten werden probiert — erst das erste markante Wort ("CaramOS" → "caramos"),
-        /// dann der komplette normalisierte Name ("Ubuntu Cinnamon" → "ubuntucinnamon") — deckt
-        /// beide bei SourceForge verbreiteten Slug-Muster ab, ohne pro Distro Einzelfall-Code zu
-        /// brauchen.
-        ///
-        /// WICHTIG (Namens-Kollisionsschutz): anders als ein von der offiziellen Homepage
-        /// gecrawlter SourceForge-Link (ResolveViaDistroWatchAsync) oder ein fest verdrahteter
-        /// Resolver ist hier NIE bestätigt, dass der geratene Slug wirklich zu dieser Distro
-        /// gehört. Ein völlig unabhängiges SourceForge-Projekt mit zufällig demselben Namen (z.B.
-        /// ein Werkzeug, das ebenfalls .iso-Dateien ausliefert) würde sonst unbemerkt eine falsche
-        /// ISO an den Eintrag hängen — besonders riskant bei frisch über "ISO suchen"
-        /// hinzugefügten Einträgen OHNE bekannten Dateinamen, wo TryResolveSourceForgeProjectAsync
-        /// mangels Vergleichsbasis blind den ERSTEN Feed-Eintrag nimmt. Deshalb: der gefundene
-        /// Dateiname muss das namensgebende Schlüsselwort enthalten, sonst wird das Ergebnis
-        /// verworfen (kein blindes Vertrauen in eine bloß geratene Zuordnung).
-        /// </summary>
-        private async Task<(string, string, string)> ResolveViaSourceForgeSearchAsync(IsoEntry entry)
-        {
-            if (string.IsNullOrWhiteSpace(entry.Name)) return Empty;
-            string keyword = FirstKeyword(entry.Name);
-            var candidates = new[] { NormalizeForMatch(keyword), NormalizeForMatch(entry.Name) }
-                .Where(s => !string.IsNullOrWhiteSpace(s)).Distinct(StringComparer.OrdinalIgnoreCase);
-            foreach (string slug in candidates)
-            {
-                try
-                {
-                    var result = await TryResolveSourceForgeProjectAsync(slug, entry.Filename).ConfigureAwait(false);
-                    if (result != Empty && result.Item3.Contains(keyword, StringComparison.OrdinalIgnoreCase))
-                        return result;
-                }
-                catch (Exception ex) { Debug.WriteLine($"[SourceForgeGuess] {entry.Name}/{slug}: {ex.Message}"); }
-            }
-            return Empty;
-        }
-
-        private async Task<(string, string, string)> TryResolveGitHubReleaseFromTextAsync(IsoEntry entry, string text)
-        {
-            foreach (string repo in RankGitHubRepositoriesForEntry(entry, text).Take(5))
-            {
-                string url = await GitHubResolveUrlAsync(repo, "*.iso").ConfigureAwait(false);
-                if (string.IsNullOrWhiteSpace(url)) continue;
-                string fname = Path.GetFileName(new Uri(url).AbsolutePath);
-                string keyword = NormalizeForMatch(FirstKeyword(entry.Name));
-                string repoNorm = NormalizeForMatch(repo);
-                string fileNorm = NormalizeForMatch(fname);
-                if (!string.IsNullOrEmpty(keyword) && !repoNorm.Contains(keyword) && !fileNorm.Contains(keyword)) continue;
-                if (!await IsReachableAsync(url, 8).ConfigureAwait(false)) continue;
-                if (string.IsNullOrWhiteSpace(entry.GithubRepo)) entry.GithubRepo = repo;
-                if (string.IsNullOrWhiteSpace(entry.GithubAsset)) entry.GithubAsset = "*.iso";
-                return (ExtractVersion(fname), url, fname);
-            }
-            return Empty;
-        }
-
-        private static IEnumerable<string> RankGitHubRepositoriesForEntry(IsoEntry entry, string text)
-        {
-            string keyword = NormalizeForMatch(FirstKeyword(entry.Name));
-            string full = NormalizeForMatch(entry.Name);
-            return FindGitHubRepositorySlugs(text)
-                .Select(r =>
-                {
-                    string rn = NormalizeForMatch(r);
-                    int score = 0;
-                    if (!string.IsNullOrEmpty(keyword) && rn.Contains(keyword)) score += 10;
-                    if (!string.IsNullOrEmpty(full) && rn.Contains(full)) score += 6;
-                    if (r.Contains("/" + FirstKeyword(entry.Name), StringComparison.OrdinalIgnoreCase)) score += 4;
-                    return new { Repo = r, Score = score };
-                })
-                .Where(x => x.Score > 0)
-                .OrderByDescending(x => x.Score)
-                .Select(x => x.Repo);
-        }
-
-        internal static string? TryFindGitHubRepositorySlug(string text) => FindGitHubRepositorySlugs(text).FirstOrDefault();
-
-        internal static IReadOnlyList<string> FindGitHubRepositorySlugs(string text)
-        {
-            if (string.IsNullOrWhiteSpace(text)) return Array.Empty<string>();
-            var repos = new List<string>();
-            foreach (Match m in Regex.Matches(text, @"github\.com/(?!features|topics|marketplace|login|signup|settings|orgs)([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)", RegexOptions.IgnoreCase))
-            {
-                string owner = m.Groups[1].Value;
-                string repo = m.Groups[2].Value.TrimEnd('.');
-                if (string.Equals(repo, "releases", StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(repo, "issues", StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(repo, "discussions", StringComparison.OrdinalIgnoreCase)) continue;
-                if (repo.EndsWith(".git", StringComparison.OrdinalIgnoreCase)) repo = repo[..^4];
-                string slug = $"{owner}/{repo}";
-                if (!repos.Contains(slug, StringComparer.OrdinalIgnoreCase)) repos.Add(slug);
-            }
-            foreach (Match m in Regex.Matches(text, @"api\.github\.com/repos/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)", RegexOptions.IgnoreCase))
-            {
-                string slug = $"{m.Groups[1].Value}/{m.Groups[2].Value}";
-                if (!repos.Contains(slug, StringComparer.OrdinalIgnoreCase)) repos.Add(slug);
-            }
-            return repos;
         }
 
         /// <summary>
@@ -1156,9 +973,22 @@ namespace ULM.Core.Services
             if (string.IsNullOrWhiteSpace(entry.Name)) return Empty;
             try
             {
-                string query = Uri.EscapeDataString($"{entry.Name} iso download");
+                // BUGFIX: Der VOLLE entry.Name ist bei importierten/manuell hinzugefügten Einträgen
+                // oft ein aus dem Dateinamen abgeleiteter, sehr spezifischer Text (z.B. "LajtLinux kwm
+                // river testing 20260905 amd64" oder "Bliss Surface v16.9.7 x86 64 OFFICIAL gapps
+                // 20241012") — mit Build-Variante, Datum und Architektur als zusätzliche Suchbegriffe
+                // ergab die Suche live beobachtet 0 Treffer, obwohl dieselbe Suchmaschine mit nur dem
+                // ersten Schlüsselwort ("LajtLinux iso download") sofort die richtige Quelle fand
+                // (SourceForge-Projektseite). Dieselbe Schlüsselwort-Extraktion wie in
+                // ResolveViaDistroWatchAsync verwenden statt des vollen Namens — die nachgelagerte
+                // Namens-/Versions-Plausibilitätsprüfung (FindBestIsoMatch/IsVersionNewer weiter unten)
+                // sortiert unpassende Treffer ohnehin aus, ein breiterer Suchbegriff kostet also nur
+                // Präzision bei der Trefferauswahl, nicht bei der Sicherheit.
+                string query = Uri.EscapeDataString($"{FirstKeyword(entry.Name)} iso download");
                 string? html = await GetStringAsync($"https://html.duckduckgo.com/html/?q={query}", 15).ConfigureAwait(false);
                 if (html is null) return Empty;
+                if (html.Contains(DuckDuckGoBlockMarker, StringComparison.OrdinalIgnoreCase))
+                { LastResolveWasSearchEngineBlocked = true; return Empty; }
 
                 var resultPages = Regex.Matches(html, @"class=""result__a""[^>]*href=""([^""]+)""", RegexOptions.IgnoreCase)
                     .Cast<Match>().Select(m => ResolveDuckDuckGoRedirect(m.Groups[1].Value))
@@ -1176,9 +1006,6 @@ namespace ULM.Core.Services
                     if (candidate.EndsWith(".iso", StringComparison.OrdinalIgnoreCase))
                     { pool.Add((candidate, candidate)); continue; }
 
-                    var ghFromCandidate = await TryResolveGitHubReleaseFromTextAsync(entry, candidate).ConfigureAwait(false);
-                    if (ghFromCandidate != Empty) return ghFromCandidate;
-
                     // SourceForge-Treffer (z.B. die Projekt-Homepage) zuerst über den bewährten
                     // RSS-Feed auflösen, bevor generisches Link-Scraping versucht wird — SourceForges
                     // eigene Projektseiten laden ihre Dateiliste per JavaScript nach und enthalten in
@@ -1195,8 +1022,6 @@ namespace ULM.Core.Services
 
                     string? pageHtml = await GetStringAsync(candidate, 12).ConfigureAwait(false);
                     if (pageHtml is null) continue;
-                    var ghFromPage = await TryResolveGitHubReleaseFromTextAsync(entry, pageHtml).ConfigureAwait(false);
-                    if (ghFromPage != Empty) return ghFromPage;
                     // Folgt bei Bedarf einem "Download"-Link eine Ebene tiefer (siehe
                     // FindIsoLinksFollowingDownloadLinkAsync) — viele Trefferseiten sind die
                     // Projekt-Homepage, nicht die eigentliche Download-Unterseite.

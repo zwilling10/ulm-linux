@@ -1,6 +1,6 @@
 # Universal Linux Manager (ULM)
 
-Portabler Windows-Manager für Ventoy-Multiboot-USB-Sticks mit Linux-Live-ISOs. Lädt aktuelle Versionen automatisch von den offiziellen Quellen, kopiert sie auf den Stick und hält den ganzen Katalog dauerhaft aktuell — auch ohne hinterlegte URLs.
+Portabler Manager für Windows und Linux für Ventoy-Multiboot-USB-Sticks mit Linux-Live-ISOs. Lädt aktuelle Versionen automatisch von den offiziellen Quellen, kopiert sie auf den Stick und hält den ganzen Katalog dauerhaft aktuell — auch ohne hinterlegte URLs.
 
 🔗 **[Projektseite & Download](https://zwilling10.github.io/ULM/)** · **[Neueste Version](../../releases/latest)**
 
@@ -21,12 +21,16 @@ Portabler Windows-Manager für Ventoy-Multiboot-USB-Sticks mit Linux-Live-ISOs. 
 
 ## Download
 
-Unter [Releases](../../releases/latest) stehen zwei Varianten bereit:
+Unter [Releases](../../releases/latest) stehen Varianten für Windows und Linux bereit:
 
+**Windows:**
 - **Portable `.exe`** (`UniversalLinuxManager-vX.Y.Z-win-x64.exe`) — einfach herunterladen und starten, keine Installation, keine Administratorrechte nötig (außer für die optionale Ventoy-Installation/-Aktualisierung)
 - **Setup `.exe`** (`UniversalLinuxManager-Setup-vX.Y.Z-win-x64.exe`) — klassischer Installer mit Startmenü-Eintrag, optionalem Desktop-Icon und Deinstaller unter "Programme und Features"
 
-**Anforderungen:** Windows 10 / 11 (x64)
+**Linux:**
+- **Portable Binärdatei** (`UniversalLinuxManager-vX.Y.Z-linux-x64`) — herunterladen, mit `chmod +x` ausführbar machen und starten, keine Paketinstallation nötig (außer für die optionale Ventoy-Installation/-Aktualisierung, per `pkexec`)
+
+**Anforderungen:** Windows 10 / 11 (x64) oder Linux x86_64 (jede aktuelle Distribution)
 
 ## Aus dem Quellcode bauen
 
@@ -35,33 +39,36 @@ Voraussetzung: [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
 ```bash
 git clone https://github.com/zwilling10/ULM.git
 cd ULM
-./build-release.sh                        # baut eine portable Single-File-EXE nach release/
-./build-release.sh --zip                  # zusätzlich als .zip verpackt
-./build-release.sh --installer            # zusätzlich klassischen Setup.exe bauen (benötigt Inno Setup, https://jrsoftware.org/isdl.php)
+./build-release.sh                        # baut portable Single-File-Binaries für Windows UND Linux nach release/
+./build-release.sh --zip                  # Windows-EXE zusätzlich als .zip verpackt
+./build-release.sh --installer            # zusätzlich klassischen Windows-Setup.exe bauen (benötigt Inno Setup, https://jrsoftware.org/isdl.php)
 ```
 
 Oder direkt mit `dotnet publish`:
 
 ```bash
-dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true
+dotnet publish UniversalLinuxManager.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true
+dotnet publish Linux/ULM.Linux.csproj -c Release -r linux-x64 --self-contained true
 ```
 
 ## Tests
 
 ```bash
-dotnet test ULM.Tests/ULM.Tests.csproj
+dotnet test ULM.Tests/ULM.Tests.csproj                              # Windows-Testsuite (nur unter Windows/net8.0-windows baubar)
+dotnet test Linux/ULM.Linux.Tests/ULM.Linux.Tests.csproj            # Linux-Testsuite
 ```
 
 Läuft bei jedem Push automatisch per GitHub Actions CI.
 
 ## Architektur
 
-MVVM (C# / WPF, .NET 8):
+MVVM (.NET 8), zwei eigenständige UI-Projekte über gemeinsamem `Core/`:
 
 - `Core/Models` — Domänenmodell (`IsoEntry`, `UsbDrive`, Konstanten)
 - `Core/Services` — `HttpService` (URL-Auflösung/Downloads), `UsbService` (Laufwerks-/Ventoy-Verwaltung), `IsoDatabaseService` (INI-Persistenz)
 - `Core/Workers` — Hintergrund-Worker für Downloads, Scans, Versionschecks
-- `ViewModels` / `Views` — MVVM-Bindung, Dialoge
+- `ViewModels` / `Views` — WPF-Oberfläche für Windows (MVVM-Bindung, Dialoge)
+- `Linux/` — eigenständiges Avalonia-Projekt für Linux, nutzt `Core/`/`Infrastructure` unverändert mit
 
 ## Lizenz
 

@@ -82,13 +82,13 @@ namespace ULM.Core.Services
             // Wochenrückblick-Widget verwendet (gleiche Zeilenstruktur, aber href ist dort eine volle
             // URL oder "weekly.php?..."). Nur echte Distro-Slugs (reines Wort, kein "/"/"?"/"http")
             // gehören zur "Latest Additions"-Box — sonst rutschen Nachrichtenartikel mit rein.
-            // ACHTUNG: DistroWatch versieht die Links in dieser Box seit Kurzem mit einem
-            // vorangestellten title="…Beschreibung…"-Attribut (Hover-Vorschau) — href steht also
-            // NICHT mehr direkt nach <a. Ohne [^>]*-Toleranz vor href matcht kein einziger echter
-            // Eintrag mehr (leere Liste → "Keine Live-Medium-Distros gefunden", live beobachtet).
-            // FetchMostPopularAsync hat dieselbe Toleranz schon immer, hier fehlte sie.
+            // Nutzerfund (2026-09-03): DistroWatch hat den Ankern inzwischen ein title="..."-Attribut
+            // VOR href spendiert (<a title="Beschreibung..." href="slyos">) — das starre "<a href="""
+            // matchte dadurch gar nichts mehr (0 Ergebnisse trotz erfolgreichem Seitenabruf, siehe
+            // HttpService-User-Agent-Fix daneben). "<a[^>]*href=" toleriert beliebige Attribute davor,
+            // exakt das Muster, das FetchMostPopularAsync für ihr <a>-Tag bereits nutzt.
             var matches = Regex.Matches(html,
-                @"<tr>\s*<th class=""News"">([\d-]+)</th>\s*<td class=""News""><a[^>]*\bhref=""([^""]+)""[^>]*>([^<]+)</a></td>\s*</tr>",
+                @"<tr>\s*<th class=""News"">([\d-]+)</th>\s*<td class=""News""><a[^>]*href=""([^""]+)""[^>]*>([^<]+)</a></td>\s*</tr>",
                 RegexOptions.IgnoreCase);
 
             var candidates = matches.Cast<Match>()
@@ -97,14 +97,22 @@ namespace ULM.Core.Services
                 .Take(20)
                 .ToList();
 
-            return await ResolveLiveMediumCandidatesAsync(candidates.Select(c => (c.Slug, c.Name, InfoKind: DiscoveryInfoKind.AddedOn, InfoArg1: c.Date, InfoArg2: string.Empty)).ToList())
+            return await ResolveLiveMediumCandidatesAsync(candidates.Select(c => (c.Slug, c.Name, Info: $"Hinzugefügt: {c.Date}")).ToList())
                 .ConfigureAwait(false);
         }
 
         // ── "Beliebteste": DistroWatch Page-Hit-Ranking, Tabelle "Last 12 months" ─
         private async Task<List<DiscoveredDistro>> FetchMostPopularAsync()
         {
-            string? html = await HttpService.Instance.GetStringAsync("https://distrowatch.com/dwres.php?resource=popularity", 15).ConfigureAwait(false);
+            // Nutzerfund (2026-09-03): DistroWatch hat die Page-Hit-Ranking-Tabelle von ihrer
+            // eigenen Unterseite (dwres.php?resource=popularity) auf die Startseite verschoben —
+            // die Unterseite liefert weiterhin 200 OK samt Erklärtext ("The tables below
+            // display..."), aber KEINE Tabellenzeilen mehr (0 Treffer trotz erfolgreichem Abruf,
+            // Browser-Navigation zu der URL leitet inzwischen sogar direkt auf die Startseite um).
+            // Die Tabelle selbst (<th class="phr1">/<td class="phr2">/<td class="phr3">) sitzt
+            // unverändert auf der Startseite, exakt dieselbe Quelle wie FetchLatestAdditionsAsync
+            // bereits nutzt — Regex brauchte dafür keine Anpassung, nur die URL.
+            string? html = await HttpService.Instance.GetStringAsync("https://distrowatch.com/", 15).ConfigureAwait(false);
             if (html is null) return new List<DiscoveredDistro>();
 
             // Beobachtetes Muster (erste Tabelle im Dokument = "Last 12 months", Ranking-Reihenfolge
@@ -120,7 +128,7 @@ namespace ULM.Core.Services
                 .Take(20)
                 .ToList();
 
-            return await ResolveLiveMediumCandidatesAsync(candidates.Select(c => (c.Slug, c.Name, InfoKind: DiscoveryInfoKind.RankHits, InfoArg1: c.Rank, InfoArg2: c.Hits)).ToList())
+            return await ResolveLiveMediumCandidatesAsync(candidates.Select(c => (c.Slug, c.Name, Info: $"#{c.Rank} · {c.Hits} Hits/Tag")).ToList())
                 .ConfigureAwait(false);
         }
 
@@ -129,7 +137,7 @@ namespace ULM.Core.Services
         /// "Live Medium" (per USB-Stick bootfähig, keine reine Installations-/Server-Distro) bleibt
         /// er in der Liste. Bricht ab, sobald 10 gültige Kandidaten gefunden wurden.
         /// </summary>
-        private async Task<List<DiscoveredDistro>> ResolveLiveMediumCandidatesAsync(List<(string Slug, string Name, DiscoveryInfoKind InfoKind, string InfoArg1, string InfoArg2)> candidates)
+        private async Task<List<DiscoveredDistro>> ResolveLiveMediumCandidatesAsync(List<(string Slug, string Name, string Info)> candidates)
         {
             var result = new List<DiscoveredDistro>();
             foreach (var c in candidates)
@@ -145,37 +153,23 @@ namespace ULM.Core.Services
                     var tags = Regex.Matches(profileHtml, @"category=[^""#]+#simple"">([^<]+)<", RegexOptions.IgnoreCase)
                         .Cast<Match>().Select(m => m.Groups[1].Value).ToList();
 
-                    result.Add(new DiscoveredDistro { Name = c.Name, Slug = c.Slug, InfoKind = c.InfoKind, InfoArg1 = c.InfoArg1, InfoArg2 = c.InfoArg2, SuggestedCategory = GuessCategory(tags), Tags = tags });
+                    result.Add(new DiscoveredDistro { Name = c.Name, Slug = c.Slug, Info = c.Info, SuggestedCategory = GuessCategory(tags), Tags = tags });
                 }
                 catch (Exception ex) { Debug.WriteLine($"[Discovery] {c.Slug}: {ex.Message}"); }
             }
             return result;
         }
 
-        // Namen sind DistroWatchs offizielle Kategorie-Tags (siehe distrowatch.com/search.php,
-        // <select name="category"> — LIVE gegengeprüft) und NICHT frei erfunden. Die vorherige
-        // Version prüfte teils Tags, die dort gar nicht existieren ("Rescue", "Backup",
-        // "Antivirus", "Minimal", "Lightweight", "Router/Firewall", "Networking") — diese Regeln
-        // konnten dadurch NIE zutreffen, betroffene Distros landeten immer im "Einsteiger"-
-        // Fallback, unabhängig vom tatsächlichen Fokus. Live beobachtet: ThorOS (Tag "Large
-        // Language Model", damals nirgends geprüft) → fälschlich "Einsteiger" statt
-        // "Fortgeschrittene"; JRescue (Tag "Disk Management") → fälschlich "Einsteiger" statt
-        // "Rettung", obwohl Name UND Tag eindeutig sind.
         private static string GuessCategory(IReadOnlyList<string> dwTags)
         {
             bool Has(string t) => dwTags.Any(x => x.Equals(t, StringComparison.OrdinalIgnoreCase));
             if (Has("Gaming"))                                                       return "Gaming";
             if (Has("Security") || Has("Privacy") || Has("Forensics"))                return "Sicherheit";
-            if (Has("Data Rescue") || Has("Disk Management"))                         return "Rettung";
-            if (Has("Old Computers") || Has("Netbooks") || Has("Thin Client") ||
-                Has("Load To RAM"))                                                    return "Leichtgewicht";
+            if (Has("Rescue") || Has("Backup"))                                       return "Rettung";
+            if (Has("Antivirus"))                                                     return "Antivirus";
+            if (Has("Minimal") || Has("Old Computers") || Has("Lightweight"))          return "Leichtgewicht";
             if (Has("Server") || Has("Container") || Has("Kubernetes") ||
-                Has("Immutable") || Has("Firewall") || Has("Clusters") ||
-                Has("High Performance Computing") || Has("NAS") ||
-                Has("Declarative") || Has("Source-based") ||
-                Has("Large Language Model") || Has("Scientific") || Has("Specialist")) return "Fortgeschrittene";
-            // "Antivirus" hat auf DistroWatch kein eigenes Tag (nur manuell in der ULM-Datenbank
-            // vergeben) — bleibt hier absichtlich ohne automatischen Treffer.
+                Has("Immutable") || Has("Router/Firewall") || Has("Networking"))       return "Fortgeschrittene";
             return "Einsteiger";
         }
 
@@ -200,17 +194,11 @@ namespace ULM.Core.Services
                 string name = d.GetValueOrDefault("Name", string.Empty);
                 string slug = d.GetValueOrDefault("Slug", string.Empty);
                 if (name.Length == 0 || slug.Length == 0) continue;
-                // Cache-Eintrag stammt noch aus dem alten Format (fertig formatiertes "Info"
-                // statt InfoKind/InfoArg1/InfoArg2) — kompletten Cache verwerfen statt mit
-                // eingefrorenem Text weiterzuarbeiten; GetAsync holt dann automatisch frisch.
-                if (!Enum.TryParse(d.GetValueOrDefault("InfoKind", string.Empty), out DiscoveryInfoKind infoKind)) return null;
                 string tagsRaw = d.GetValueOrDefault("Tags", string.Empty);
                 items.Add(new DiscoveredDistro
                 {
                     Name = name, Slug = slug,
-                    InfoKind = infoKind,
-                    InfoArg1 = d.GetValueOrDefault("InfoArg1", string.Empty),
-                    InfoArg2 = d.GetValueOrDefault("InfoArg2", string.Empty),
+                    Info = d.GetValueOrDefault("Info", string.Empty),
                     SuggestedCategory = d.GetValueOrDefault("Category", "Einsteiger"),
                     Tags = tagsRaw.Length == 0 ? Array.Empty<string>() : tagsRaw.Split('|', StringSplitOptions.RemoveEmptyEntries),
                 });
@@ -235,9 +223,7 @@ namespace ULM.Core.Services
                     {
                         ["Name"]     = items[i].Name,
                         ["Slug"]     = items[i].Slug,
-                        ["InfoKind"] = items[i].InfoKind.ToString(),
-                        ["InfoArg1"] = items[i].InfoArg1,
-                        ["InfoArg2"] = items[i].InfoArg2,
+                        ["Info"]     = items[i].Info,
                         ["Category"] = items[i].SuggestedCategory,
                         ["Tags"]     = string.Join('|', items[i].Tags),
                     };

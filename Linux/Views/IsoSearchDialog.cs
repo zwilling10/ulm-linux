@@ -1,7 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
-using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
@@ -25,7 +23,6 @@ namespace ULM.Linux.Views
 
         public List<IsoEntry> AddedEntries { get; } = new();
         public HashSet<IsoEntry> ToDownload { get; } = new();
-
         private DistroPreviewDialog? _openPreviewDialog;
 
         private sealed class DiscoveryRow
@@ -41,19 +38,19 @@ namespace ULM.Linux.Views
         {
             public required StackPanel RowsPanel = null!;
             public required TextBlock StatusTb = null!;
-            public required string FallbackQuery = string.Empty;
+            public required CheckBox AlsoDownloadChk = null!;
             public readonly List<DiscoveryRow> Rows = new();
             public bool Loaded;
         }
 
-        private readonly DiscoveryTab _latestTab = MakeTabState("distrowatch.com latest distributions");
-        private readonly DiscoveryTab _popularTab = MakeTabState("distrowatch.com most popular distributions");
+        private readonly DiscoveryTab _latestTab = MakeTabState();
+        private readonly DiscoveryTab _popularTab = MakeTabState();
 
-        private static DiscoveryTab MakeTabState(string fallbackQuery) => new()
+        private static DiscoveryTab MakeTabState() => new()
         {
             RowsPanel = new StackPanel(),
             StatusTb = new TextBlock { FontSize = 10.5, Foreground = BrushDim, Margin = new Thickness(0, 0, 0, 8) },
-            FallbackQuery = fallbackQuery,
+            AlsoDownloadChk = new CheckBox { Content = LocalizationService.T(Str.Db_Chk_DownloadImmediately), VerticalAlignment = VerticalAlignment.Center },
         };
 
         public IsoSearchDialog()
@@ -102,10 +99,11 @@ namespace ULM.Linux.Views
             Grid.SetRow(scroll, 1);
 
             var footer = new DockPanel { Margin = new Thickness(0, 10, 0, 0) };
-            var takeBtn = new Button { Content = LocalizationService.T(Str.Db_Btn_TakeOver) + " / Download", Classes = { "primary" }, MinWidth = 180 };
+            var takeBtn = new Button { Content = LocalizationService.T(Str.Db_Btn_TakeOver), Classes = { "primary" }, MinWidth = 140 };
             DockPanel.SetDock(takeBtn, Dock.Right);
             takeBtn.Click += (_, _) => TakeSelected(tab);
             footer.Children.Add(takeBtn);
+            footer.Children.Add(tab.AlsoDownloadChk);
             Grid.SetRow(footer, 2);
 
             refreshBtn.Click += async (_, _) => await LoadDiscoveryTabAsync(tab, forceRefresh: true, fetch);
@@ -128,23 +126,6 @@ namespace ULM.Linux.Views
                 if (result.Items.Count == 0)
                 {
                     tab.StatusTb.Text = LocalizationService.T(Str.Db_NoDiscoveryResults);
-                    var fallbackBtn = new Button
-                    {
-                        Content = LocalizationService.T(Str.Db_DiscoverySearchFallback),
-                        Classes = { "ghost" },
-                        HorizontalAlignment = HorizontalAlignment.Left,
-                        Margin = new Thickness(0, 4, 0, 0),
-                    };
-                    fallbackBtn.Click += (_, _) =>
-                    {
-                        try
-                        {
-                            string url = $"https://duckduckgo.com/?q={Uri.EscapeDataString(tab.FallbackQuery)}";
-                            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
-                        }
-                        catch (Exception ex) { Debug.WriteLine($"[DiscoveryFallback] {ex.Message}"); }
-                    };
-                    tab.RowsPanel.Children.Add(fallbackBtn);
                     return;
                 }
                 tab.StatusTb.Text = (result.FromCache ? LocalizationService.T(Str.Db_FromCache) : LocalizationService.T(Str.Db_FreshlyLoaded))
@@ -159,7 +140,7 @@ namespace ULM.Linux.Views
                     // Spalte war mit 24px knapper bemessen als Fluents CheckBox-Indikator (~20px)
                     // plus 4px Rand auf jeder Seite tatsächlich braucht (24 - 8 = 16px reichten
                     // nicht). Spalte auf 34px verbreitert, Rand entsprechend verschmälert.
-                    var chk = new CheckBox { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(2), IsVisible = !d.AlreadyInDb };
+                    var chk = new CheckBox { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(2), IsEnabled = !d.AlreadyInDb };
                     Grid.SetColumn(chk, 0);
                     row.Children.Add(chk);
 
@@ -179,7 +160,7 @@ namespace ULM.Linux.Views
                     // denselben Inhalt wie BuildInfoTooltip, nur als klick-bares Fenster.
                     var previewBtn = new Button
                     {
-                        Content = "🔍", Classes = { "ghost" }, Width = 28, Height = 28, Padding = new Thickness(0),
+                        Content = "👁", Classes = { "ghost" }, Width = 28, Height = 28, Padding = new Thickness(0),
                         VerticalAlignment = VerticalAlignment.Center, HorizontalContentAlignment = HorizontalAlignment.Center,
                     };
                     ToolTip.SetTip(previewBtn, LocalizationService.T(Str.Preview_OpenTooltip));
@@ -221,18 +202,19 @@ namespace ULM.Linux.Views
 
         private void TakeSelected(DiscoveryTab tab)
         {
+            bool alsoDownload = tab.AlsoDownloadChk.IsChecked == true;
             int taken = 0;
             foreach (DiscoveryRow row in tab.Rows)
             {
                 if (row.Distro.AlreadyInDb || row.Chk.IsChecked != true) continue;
                 string category = DbFieldHelpers.SelectedCategory(row.CatCb);
-                var entry = CreateEntryFromDiscovery(row.Distro, category);
+                var entry = new IsoEntry { Name = row.Distro.Name, Category = category };
                 AddedEntries.Add(entry);
-                ToDownload.Add(entry);
+                if (alsoDownload) ToDownload.Add(entry);
 
                 row.Distro.AlreadyInDb = true;
                 row.Chk.IsChecked = false;
-                row.Chk.IsVisible = false;
+                row.Chk.IsEnabled = false;
                 row.CatCb.IsEnabled = false;
                 row.NameTb.Text = string.Format(LocalizationService.T(Str.Db_NameAlreadyInDb), row.Distro.Name);
                 row.NameTb.Foreground = BrushDim;
@@ -242,16 +224,6 @@ namespace ULM.Linux.Views
             }
             if (taken > 0) tab.StatusTb.Text = string.Format(LocalizationService.T(Str.Db_TakenOverStatus), taken, tab.StatusTb.Text);
         }
-
-        internal static IsoEntry CreateEntryFromDiscovery(DiscoveredDistro distro, string category) => new()
-        {
-            Name = distro.Name,
-            Category = category,
-            DiscoverySlug = distro.Slug,
-            DiscoveryPage = string.IsNullOrWhiteSpace(distro.Slug)
-                ? string.Empty
-                : $"https://distrowatch.com/table.php?distribution={Uri.EscapeDataString(distro.Slug)}"
-        };
 
         private static void ApplyRowHighlight(Grid row, DiscoveredDistro d) =>
             row.Background = d.AlreadyInDb ? BrushAlreadyInDbBg : BrushTransparent;

@@ -10,15 +10,19 @@ using ULM.Linux.ViewModels;
 
 namespace ULM.Linux.Views
 {
-    /// <summary>Linux preferences applied together after explicit confirmation.</summary>
+    /// <summary>Ersetzt den bisher deaktivierten "⚙ Einstellungen"-Header-Button — Avalonia-Pendant
+    /// zu Windows' konsolidiertem SetupDialog-"Lite"-Modus (siehe docs/superpowers/specs/
+    /// 2026-07-23-settings-consolidation-design.md), aber mit auf Linux tatsächlich vorhandenen
+    /// Optionen statt einer 1:1-Kopie (Windows' Modus/Autostart/Design-Karten haben auf Linux
+    /// aktuell kein Äquivalent): Sprache (bereits bestehender Umschalter, zieht hierher um) +
+    /// Arbeitsverzeichnis (neu — Windows bietet das nach dem Ersteinrichtungs-Dialog gar nicht
+    /// mehr an, hier bewusst als späterer Änderungsweg ergänzt).
+    /// Sammel-Muster wie beim Windows-Vorbild: ein "✔ Übernehmen"-Button wendet beides an.</summary>
     public sealed class SettingsDialog : Window
     {
         private readonly LinuxMainViewModel _vm;
         private AppLanguage _chosenLanguage;
         private string _chosenBaseDir;
-        private readonly CheckBox _expert;
-        private readonly CheckBox _autostart;
-        private readonly ComboBox _theme;
         private readonly Button _deBtn;
         private readonly Button _enBtn;
         private readonly TextBlock _dirValueTb;
@@ -48,15 +52,6 @@ namespace ULM.Linux.Views
             langRow.Children.Add(_enBtn);
             root.Children.Add(langRow);
             UpdateLangButtons();
-
-            var preferences = LinuxPreferences.Load();
-            _expert = new CheckBox { Content = LocalizationService.T(Str.Setup_Chk_ExpertMode), IsChecked = preferences.ExpertMode };
-            _autostart = new CheckBox { Content = LocalizationService.Current == AppLanguage.German ? "ULM bei der Anmeldung starten" : "Start ULM at login", IsChecked = LinuxAutostart.IsEnabled };
-            root.Children.Add(_expert);
-            root.Children.Add(_autostart);
-            root.Children.Add(new TextBlock { Text = LocalizationService.T(Str.Setup_Card_Design), FontWeight = FontWeight.SemiBold, Margin = new Thickness(0, 12, 0, 6) });
-            _theme = new ComboBox { ItemsSource = new[] { LocalizationService.T(Str.Setup_Theme_System), LocalizationService.T(Str.Setup_Theme_Light), LocalizationService.T(Str.Setup_Theme_Dark) }, SelectedIndex = preferences.Theme switch { "Light" => 1, "Dark" => 2, _ => 0 }, HorizontalAlignment = HorizontalAlignment.Stretch, Margin = new Thickness(0, 0, 0, 18) };
-            root.Children.Add(_theme);
 
             // ── Arbeitsverzeichnis ───────────────────────────────────
             root.Children.Add(new TextBlock { Text = LocalizationService.T(Str.Settings_Card_WorkDir), FontWeight = FontWeight.SemiBold, Margin = new Thickness(0, 0, 0, 6) });
@@ -106,19 +101,6 @@ namespace ULM.Linux.Views
 
         private async void OnApplyClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
         {
-            try
-            {
-                bool autostart = _autostart.IsChecked == true;
-                if (autostart != LinuxAutostart.IsEnabled) LinuxAutostart.SetEnabled(autostart);
-                var preferences = new LinuxPreferences { ExpertMode = _expert.IsChecked == true, Theme = _theme.SelectedIndex switch { 1 => "Light", 2 => "Dark", _ => "System" } };
-                preferences.Save();
-                if (Application.Current is { } app) LinuxPreferences.ApplyTheme(app, preferences.Theme);
-            }
-            catch (Exception ex)
-            {
-                await InfoDialog.ShowAsync(this, Title ?? "ULM", ex.Message);
-                return;
-            }
             if (_chosenLanguage != LocalizationService.Current) _vm.ToggleLanguageCommand.Execute(null);
 
             bool dirChanged = _chosenBaseDir != AppPaths.Instance.BaseDirectory;

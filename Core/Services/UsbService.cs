@@ -17,7 +17,7 @@ namespace ULM.Core.Services
     public interface IUsbService
     {
         List<UsbDrive> ListRemovableDrives();
-        Task<(List<UsbService.StickIso> Found, List<UsbService.StickIso> Incomplete)> ScanStickVerifiedAsync(string letter, IReadOnlyList<IsoEntry> entries);
+        Task<(List<UsbService.StickIso> Found, List<UsbService.StickIso> Incomplete)> ScanStickVerifiedAsync(string letter, IReadOnlyList<IsoEntry> entries, Action<int, int>? onProgress = null);
         List<RawUsbDiskCandidate> ListRawUsbDisksWithoutLetter();
         bool PrepareRawUsbDisk(int diskIndex, char letter);
     }
@@ -517,7 +517,7 @@ foreach ($d in $disks) {
         /// werden NICHT in die reguläre Trefferliste aufgenommen, damit sie nicht fälschlich
         /// als UsbStatus.Ok durchgehen.
         /// </summary>
-        public async Task<(List<StickIso> Found, List<StickIso> Incomplete)> ScanStickVerifiedAsync(string letter, IReadOnlyList<IsoEntry> entries)
+        public async Task<(List<StickIso> Found, List<StickIso> Incomplete)> ScanStickVerifiedAsync(string letter, IReadOnlyList<IsoEntry> entries, Action<int, int>? onProgress = null)
         {
             var found = ScanStick(letter, entries);
             var byFn  = new Dictionary<string, IsoEntry>(StringComparer.OrdinalIgnoreCase);
@@ -525,12 +525,16 @@ foreach ($d in $disks) {
                 if (!string.IsNullOrWhiteSpace(e.Filename) && !byFn.ContainsKey(e.Filename)) byFn[e.Filename] = e;
 
             var incomplete = new List<StickIso>();
-            foreach (var si in found)
+            for (int i = 0; i < found.Count; i++)
             {
-                if (!byFn.TryGetValue(si.Filename, out var entry)) continue; // unbekannte Datei — eigener Import-Flow
-                long expected = await HttpService.Instance.GetExpectedSizeAsync(entry).ConfigureAwait(false);
-                bool ok = expected > 0 ? si.Size >= expected * 0.98 : si.Size >= Constants.MinIsoSizeBytes;
-                if (!ok) incomplete.Add(si);
+                var si = found[i];
+                if (byFn.TryGetValue(si.Filename, out var entry))
+                {
+                    long expected = await HttpService.Instance.GetExpectedSizeAsync(entry).ConfigureAwait(false);
+                    bool ok = expected > 0 ? si.Size >= expected * 0.98 : si.Size >= Constants.MinIsoSizeBytes;
+                    if (!ok) incomplete.Add(si);
+                }
+                onProgress?.Invoke(i + 1, found.Count);
             }
 
             var clean = incomplete.Count == 0 ? found : found.Where(f => !incomplete.Contains(f)).ToList();

@@ -1,10 +1,12 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using ULM.Core.Models;
+using ULM.Core.Services;
 using ULM.Infrastructure;
 
 namespace ULM.Linux.Views
@@ -19,6 +21,8 @@ namespace ULM.Linux.Views
             _tbGhRepo, _tbGhAsset, _tbTip, _tbTipEn;
         private readonly ComboBox _cbCat;
         private readonly TextBlock _errorTb;
+        private readonly TextBlock _searchStatusTb;
+        private readonly Button _searchBtn;
 
         public IsoEditDialog(IsoEntry entry, bool isNew)
         {
@@ -42,6 +46,20 @@ namespace ULM.Linux.Views
             _tbMirror3  = DbFieldHelpers.AddField(root, LocalizationService.T(Str.Db_Field_Mirror3), entry.Mirror3);
             _tbGhRepo   = DbFieldHelpers.AddField(root, LocalizationService.T(Str.Db_Field_GithubRepo), entry.GithubRepo);
             _tbGhAsset  = DbFieldHelpers.AddField(root, LocalizationService.T(Str.Db_Field_GithubAsset), entry.GithubAsset);
+
+            // Nutzerfund (2026-09-15): manuell bzw. per "ISO suchen" hinzugefügte Einträge hatten
+            // keine Möglichkeit, ihre Url/Filename gezielt nachträglich automatisch auffüllen zu
+            // lassen — nur ein kompletter Katalog-Scan (Update-/Gesundheitscheck) versuchte das,
+            // beiläufig für ALLE Einträge. Dieser Button ruft dieselbe Auflösung
+            // (HttpService.ResolveLatestAsync) gezielt für GENAU diesen Eintrag auf, mit den
+            // aktuell im Dialog eingetragenen (noch ungespeicherten) Werten als Grundlage — steht
+            // für jeden Katalog-Eintrag unter "Bearbeiten" zur Verfügung, nicht nur für neue.
+            _searchBtn = new Button { Content = LocalizationService.T(Str.Db_Btn_OnlineSearch), Classes = { "ghost" }, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 4, 0, 4) };
+            _searchStatusTb = new TextBlock { TextWrapping = Avalonia.Media.TextWrapping.Wrap, IsVisible = false, Margin = new Thickness(0, 0, 0, 8), Opacity = 0.8 };
+            _searchBtn.Click += async (_, _) => await RunOnlineSearchAsync().ConfigureAwait(true);
+            root.Children.Add(_searchBtn);
+            root.Children.Add(_searchStatusTb);
+
             _tbTip      = DbFieldHelpers.AddField(root, LocalizationService.T(Str.Db_Field_Description), entry.Tip, multiLine: true);
             _tbTipEn    = DbFieldHelpers.AddField(root, LocalizationService.T(Str.Db_Field_DescriptionEn), entry.TipEn, multiLine: true);
 
@@ -59,6 +77,48 @@ namespace ULM.Linux.Views
 
             scroll.Content = root;
             Content = scroll;
+        }
+
+        /// <summary>Löst Url/Filename für den aktuell im Dialog eingetragenen Eintrag über
+        /// HttpService.ResolveLatestAsync auf — dieselbe Auflösungskette (dedizierte Distro-
+        /// Resolver, GitHub-Releases, SourceForge, DistroWatch-Fallback, generische Websuche), die
+        /// sonst nur beiläufig während eines vollen Update-/Gesundheitschecks für Einträge ohne
+        /// Quelle läuft. Arbeitet mit einer TEMPORÄREN Kopie der aktuell im Dialog stehenden
+        /// (ggf. noch ungespeicherten) Werte, damit ein frisch getippter Name/GitHub-Repo sofort
+        /// mitgenutzt wird, ohne den echten Eintrag vor einem "Speichern" zu verändern.</summary>
+        private async Task RunOnlineSearchAsync()
+        {
+            _searchBtn.IsEnabled = false;
+            _searchStatusTb.Text = LocalizationService.T(Str.Db_OnlineSearch_Running);
+            _searchStatusTb.IsVisible = true;
+            try
+            {
+                var probe = new IsoEntry
+                {
+                    Name        = _tbName.Text?.Trim() ?? string.Empty,
+                    Filename    = _tbFilename.Text?.Trim() ?? string.Empty,
+                    Url         = _tbUrl.Text?.Trim() ?? string.Empty,
+                    Mirror1     = _tbMirror1.Text?.Trim() ?? string.Empty,
+                    Mirror2     = _tbMirror2.Text?.Trim() ?? string.Empty,
+                    Mirror3     = _tbMirror3.Text?.Trim() ?? string.Empty,
+                    GithubRepo  = _tbGhRepo.Text?.Trim() ?? string.Empty,
+                    GithubAsset = _tbGhAsset.Text?.Trim() ?? string.Empty,
+                };
+                var (ver, url, fname) = await HttpService.Instance.ResolveLatestAsync(probe).ConfigureAwait(true);
+                if (string.IsNullOrWhiteSpace(url))
+                {
+                    _searchStatusTb.Text = HttpService.Instance.LastResolveWasSearchEngineBlocked
+                        ? LocalizationService.T(Str.Db_OnlineSearch_Blocked)
+                        : LocalizationService.T(Str.Db_OnlineSearch_NotFound);
+                }
+                else
+                {
+                    _tbUrl.Text = url;
+                    _tbFilename.Text = fname;
+                    _searchStatusTb.Text = string.Format(LocalizationService.T(Str.Db_OnlineSearch_Found), ver);
+                }
+            }
+            finally { _searchBtn.IsEnabled = true; }
         }
 
         private void TrySave()
