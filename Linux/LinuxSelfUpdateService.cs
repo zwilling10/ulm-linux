@@ -35,10 +35,11 @@ namespace ULM.Linux
         public static LinuxSelfUpdateService Instance => _lazy.Value;
         private LinuxSelfUpdateService() { }
 
-        /// <summary>Sucht im neuesten GitHub-Release ein Asset, dessen Name auf "-linux-x64" endet
-        /// (siehe build-release.sh) — fehlt es (älteres Release vor Einführung dieses Features),
+        /// <summary>Sucht im neuesten GitHub-Release ein Asset, dessen Name mit "ulm-linux-" beginnt
+        /// und auf "-x64" endet (siehe .github/workflows/release.yml im ulm-linux-Repo, Muster
+        /// "ulm-linux-v{VERSION}-x64") — fehlt es (älteres Release vor Einführung dieses Features),
         /// liefert HasUpdate=false statt eine nicht herunterladbare Version zu melden.</summary>
-        public async Task<LinuxUpdateInfo> CheckForUpdateAsync(string currentVersion, string repo = "zwilling10/ULM")
+        public async Task<LinuxUpdateInfo> CheckForUpdateAsync(string currentVersion, string repo = "zwilling10/ulm-linux")
         {
             try
             {
@@ -58,7 +59,7 @@ namespace ULM.Linux
                         string n = a.TryGetProperty("name", out var nn) ? nn.GetString() ?? string.Empty : string.Empty;
                         string au = a.TryGetProperty("browser_download_url", out var uu) ? uu.GetString() ?? string.Empty : string.Empty;
                         assetList.Add((n, au));
-                        if (downloadUrl.Length == 0 && n.EndsWith("-linux-x64", StringComparison.OrdinalIgnoreCase))
+                        if (downloadUrl.Length == 0 && n.StartsWith("ulm-linux-", StringComparison.OrdinalIgnoreCase) && n.EndsWith("-x64", StringComparison.OrdinalIgnoreCase))
                             downloadUrl = au;
                     }
                 if (string.IsNullOrEmpty(downloadUrl)) return LinuxUpdateInfo.None;
