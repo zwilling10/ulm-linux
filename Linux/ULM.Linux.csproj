@@ -15,7 +15,7 @@
          "1.0.0" statt der echten Version. MUSS manuell im Gleichschritt mit UniversalLinuxManager.
          csproj's Version-Tag gepflegt werden (kein Directory.Build.props in diesem Projekt, das
          beide Male zentral haette), beim naechsten Versions-Bump hier mit nachziehen. -->
-    <Version>2.41.0</Version>
+    <Version>2.0.0</Version>
 
     <!-- Self-contained Single-File fuer linux-x64, analog zum bestehenden win-x64-Publish in
          UniversalLinuxManager.csproj. Siehe docs/superpowers/specs/2026-07-28-linux-gui-design.md. -->
@@ -93,6 +93,12 @@
     <Compile Include="..\Infrastructure\IniService.cs" Link="Infrastructure\IniService.cs" />
     <Compile Include="..\Infrastructure\AppPaths.cs" Link="Infrastructure\AppPaths.cs" />
     <Compile Include="..\ViewModels\ViewModelBase.cs" Link="ViewModels\ViewModelBase.cs" />
+    <Compile Include="..\ULM.Assistant\Models\AssistantLanguage.cs" Link="ULM.Assistant\Models\AssistantLanguage.cs" />
+    <Compile Include="..\ULM.Assistant\Models\ChatMessage.cs" Link="ULM.Assistant\Models\ChatMessage.cs" />
+    <Compile Include="..\ULM.Assistant\Models\FaqEntry.cs" Link="ULM.Assistant\Models\FaqEntry.cs" />
+    <Compile Include="..\ULM.Assistant\Services\AssistantStrings.cs" Link="ULM.Assistant\Services\AssistantStrings.cs" />
+    <Compile Include="..\ULM.Assistant\Services\FaqCatalogService.cs" Link="ULM.Assistant\Services\FaqCatalogService.cs" />
+    <Compile Include="..\ULM.Assistant\Services\FaqMatchingEngine.cs" Link="ULM.Assistant\Services\FaqMatchingEngine.cs" />
   </ItemGroup>
 
 </Project>
