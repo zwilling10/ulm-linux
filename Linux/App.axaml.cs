@@ -48,8 +48,16 @@ namespace ULM.Linux
                 // Aufruf) startet jetzt ERST, wenn der Start-Check abgeschlossen ist — danach
                 // laufen auch die einzelnen Stick-Dialoge sequenziell nacheinander (siehe
                 // ClassifyStickFindings/Func<...,Task>-Umstellung in LinuxMainViewModel).
-                mainWindow.Opened += (_, _) =>
+                mainWindow.Opened += async (_, _) =>
                 {
+                    // Nutzerwunsch (2026-09-18): Selbst-Update-Check ZUERST, vor dem Online-Scan —
+                    // vorher liefen beide parallel und der "Update verfügbar?"-Dialog erschien
+                    // mitten im laufenden Scan. Bei Annahme beendet ApplyUpdateAndRestart den
+                    // Prozess (siehe MainWindow.CheckForAppUpdateAsync) — der Code danach läuft
+                    // dann in diesem (alten) Prozess gar nicht mehr, der Scan startet stattdessen
+                    // gleich in der neuen Version.
+                    await mainWindow.CheckForAppUpdateAsync();
+
                     var startupDialog = new StartupCheckDialog(viewModel);
 
                     // Nutzerwunsch (2026-09-17): eigenes, NICHT-blockierendes "Bitte Geduld"-Popup
